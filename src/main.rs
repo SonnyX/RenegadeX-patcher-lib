@@ -8,7 +8,7 @@ use clap::Arg;
 
 use std::process;
 use std::io;
-use bit_vec::BitVec;
+use std::io::{Read, Write, Seek, SeekFrom};
 use std::fs::{OpenOptions,DirBuilder};
 
 pub struct Downloader {
@@ -89,28 +89,41 @@ impl Downloader {
   }
 
   fn download_file(&self, mirror: String, file: json::JsonValue) {
-    let part_size = 10u64.pow(4); //10.000 as u64
-    //create a .part file in download location.
+    let chunk_size :usize = 10u64.pow(4) as usize; //10.000
+    //create a file in download location.
     let file_path = format!("{}/patcher/{}", &self.RenegadeX_location.clone().unwrap(), &file["NewHash"].as_str().unwrap());
     let mut f = OpenOptions::new().read(true).write(true).create(true).open(&file_path).unwrap();
-    let file_size = file["FullReplaceSize"].as_u64().unwrap();
-    let parts_amount = (file_size / part_size + if file_size % part_size > 0 {1} else {0}) as usize;
-    let mut parts = BitVec::from_elem(parts_amount, false);
-    
-    if f.metadata().unwrap().len() < file_size + parts_amount {
-      println!("File size ({}) of patch file {} is smaller than it should be ({})",f.metadata().unwrap().len(),file["NewHash"].as_str().unwrap(), file_size + parts_amount);
-      match f.set_len(file_size + parts_amount) {
+    //set the size of the file, add a 32bit integer to the end of the file as a means of tracking progress. We won't download parts async.
+    let parts_size : usize = file["FullReplaceSize"].as_usize().unwrap();
+    let parts_amount : usize = parts_size / chunk_size + if parts_size % chunk_size > 0 {1} else {0};
+    let file_size : usize = parts_size + 4;
+    if (f.metadata().unwrap().len() as usize) < file_size {
+      println!("File size ({}) of patch file {} is smaller than it should be ({})",f.metadata().unwrap().len(),file["NewHash"].as_str().unwrap(), file_size);
+      match f.set_len(file_size as u64) {
         Ok(()) => println!("Succesfully set file size"),
         Err(e) => println!("Couldn't set file size! {}", e)
       }
     }
     let download_url = format!("{}full/{}", &mirror, &file["NewHash"].as_str().unwrap());
     let http_client = reqwest::Client::new();
-    let mut download_request = http_client.get(&download_url).header(reqwest::header::RANGE,"bytes=0-100");
-    println!("{:?}", download_request);
-    let mut download_response = download_request.send();
-    println!("{:?}", download_response);
-    println!("{:?}", download_response.unwrap().text());
+    //iterate over all parts, downloading them into memory, writing them into the file, adding one to the counter at the end of the file.
+    for part_int in 0..parts_amount {
+      let bytes_start = part_int * chunk_size;
+      let mut bytes_end = part_int * chunk_size + chunk_size -1;
+      if bytes_end > parts_size {
+        bytes_end = parts_size;
+      }
+      let mut download_request = http_client.get(&download_url).header(reqwest::header::RANGE,format!("bytes={}-{}", bytes_start, bytes_end));
+      let mut download_response = download_request.send();
+      f.seek(SeekFrom::Start(bytes_start as u64));
+      let mut content : Vec<u8> = Vec::with_capacity(bytes_end - bytes_start + 1);
+      download_response.unwrap().read_to_end(&mut content);
+      f.write_all(&content);
+      f.seek(SeekFrom::Start((parts_size) as u64));
+      f.write_all(&(part_int as u32).to_be_bytes());
+    }
+    //finally remove the counter at the end of the file
+    f.set_len(parts_size as u64);
   }
 
   pub fn download_patch(&mut self) {
