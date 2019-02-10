@@ -3,10 +3,12 @@ extern crate json;
 extern crate sha2;
 extern crate hex;
 extern crate ini;
+extern crate rayon;
 
 use ini::Ini;
 
 use sha2::{Sha256, Digest};
+use rayon::prelude::*;
 
 use std::process;
 use std::io;
@@ -54,6 +56,17 @@ pub struct Instruction {
   has_delta: bool
 }
 
+/*
+pub struct Progress {
+  entry:
+  percentage
+}
+
+pub struct ProgressArray {
+  
+}
+*/
+
 pub struct Downloader {
   RenegadeX_location: Option<String>, //Os dependant
   version: Option<String>, //RenegadeX version as mentioned in release.json
@@ -87,7 +100,7 @@ impl Downloader {
       self.get_release();
     }
     let release_data = self.release_json.clone().unwrap();
-    let path = format!("{}UDKGame/Config/DefaultRenegadeX.ini", self.RenegadeX_location.clone().unwrap());
+    let path = format!("{}UDKGame/Config/DefaultRenegadeX.ini", self.RenegadeX_location.borrow());
     let mut file = match File::open(&path) {
       Ok(file) => file,
       Err(e) => { return true }
@@ -132,8 +145,8 @@ impl Downloader {
       self.get_release();
     }
     let mut instructions_url = format!("{}{}/instructions.json",
-      &self.release_json.clone().unwrap()["game"]["mirrors"][3]["url"].as_str().unwrap(), 
-      &self.release_json.clone().unwrap()["game"]["patch_path"].as_str().unwrap());
+      &self.release_json.borrow()["game"]["mirrors"][3]["url"].as_str().unwrap(), 
+      &self.release_json.borrow()["game"]["patch_path"].as_str().unwrap());
     let mut instructions_response = match reqwest::get(&instructions_url) {
       Ok(result) => result,
       Err(e) => panic!("Is your internet down? {}", e)
@@ -179,64 +192,62 @@ impl Downloader {
     }
     let _release_json = self.release_json.clone().unwrap();
     let mirror = format!("{}{}/", &_release_json["game"]["mirrors"][3]["url"].as_str().unwrap(), &_release_json["game"]["patch_path"].as_str().unwrap());
-    DirBuilder::new().recursive(true).create(format!("{}/patcher/",&self.RenegadeX_location.clone().unwrap())).unwrap();
-
-    for i in 0..self.instructions.len() {
-      println!("{}/{}", i, self.instructions.len());
+    DirBuilder::new().recursive(true).create(format!("{}/patcher/",&self.RenegadeX_location.borrow())).unwrap();
+    self.instructions.par_iter().for_each(|instruction| {
       //Let's check NewHash if it is supposed to be Null, if it is then the file needs to be deleted.
-      if self.instructions[i].new_hash.is_none() {
-        let path = format!("{}{}", self.RenegadeX_location.borrow(), self.instructions[i].path.replace("\\","/"));
+      if instruction.new_hash.is_none() {
+        let path = format!("{}{}", self.RenegadeX_location.borrow(), instruction.path.replace("\\","/"));
         match std::fs::remove_file(&path) {
           Ok(()) => (),
           Err(e) => println!("Couldn't remove file: {:?}", e) 
         };
-        continue;
-      }
-      //Compare the installed/existing files with the OldHash 
-      let path = format!("{}{}", self.RenegadeX_location.borrow(), self.instructions[i].path.replace("\\","/"));
-      let mut file = match File::open(&path) {
-        Ok(file) => file,
-        Err(e) => { 
-          //Download full file
-          for retry in 0..3 {
-            match self.download_file(mirror.clone(), self.instructions[i].clone(), false) {
-              Ok(()) => break,
-              Err(e) => if retry == 2 { panic!("{}", e) }
-            };
-          }
-          continue;
-        }
-      };
-      let mut sha256 = Sha256::new();
-      io::copy(&mut file, &mut sha256).unwrap();
-      let hash = sha256.result();
-      //check if OldHash is some (not a new file), check if the file can be updated otherwise.
-      if self.instructions[i].old_hash.is_some() && (&hash[..] == &hex::decode(self.instructions[i].old_hash.borrow()).unwrap()[..]) {
-        //The installed file's hash is the same as the previous patch's hash
-        if self.instructions[i].old_hash.borrow() != self.instructions[i].new_hash.borrow() {
-          //a delta should be available, but let's make sure
-          if self.instructions[i].has_delta {
+      } else {
+        //Compare the installed/existing files with the OldHash 
+        let path = format!("{}{}", self.RenegadeX_location.borrow(), instruction.path.replace("\\","/"));
+        match File::open(&path) {
+          Ok(mut file) => {
+            let mut sha256 = Sha256::new();
+            io::copy(&mut file, &mut sha256).unwrap();
+            let hash = sha256.result();
+            //check if OldHash is some (not a new file), check if the file can be updated otherwise.
+            if instruction.old_hash.is_some() && (&hash[..] == &hex::decode(instruction.old_hash.borrow()).unwrap()[..]) {
+              //The installed file's hash is the same as the previous patch's hash
+              if instruction.old_hash.borrow() != instruction.new_hash.borrow() {
+                //a delta should be available, but let's make sure
+                if instruction.has_delta {
+                  for retry in 0..3 {
+                    match self.download_file(mirror.clone(), instruction.clone(), true) {
+                      Ok(()) => break,
+                      Err(e) => if retry == 2 { panic!("{}", e) }
+                    };
+                  }
+                }
+              }
+            } else {
+              //Old hash does not match the current file
+              if &hash[..] != &hex::decode(instruction.new_hash.borrow()).unwrap()[..] {
+                //Nor does it match the NewHash, thus a full file download is required.
+                for retry in 0..3 {
+                  match self.download_file(mirror.clone(), instruction.clone(), false) {
+                    Ok(()) => break,
+                    Err(e) => if retry == 2 { panic!("{}", e) }
+                  };
+                }
+              }
+            }
+          },
+          Err(e) => { 
+            //Download full file
             for retry in 0..3 {
-              match self.download_file(mirror.clone(), self.instructions[i].clone(), true) {
+              match self.download_file(mirror.clone(), instruction.clone(), false) {
                 Ok(()) => break,
                 Err(e) => if retry == 2 { panic!("{}", e) }
               };
             }
           }
-        }
-      } else {
-        //Old hash does not match the current file
-        if &hash[..] != &hex::decode(self.instructions[i].new_hash.borrow()).unwrap()[..] {
-          //Nor does it match the NewHash, thus a full file download is required.
-          for retry in 0..3 {
-            match self.download_file(mirror.clone(), self.instructions[i].clone(), false) {
-              Ok(()) => break,
-              Err(e) => if retry == 2 { panic!("{}", e) }
-            };
-          }
-        }
+        };
       }
-    }
+    });
     //self.download_file(mirror, _instructions_json[0].clone(), true);
   }
 
@@ -246,7 +257,7 @@ impl Downloader {
   fn download_file(&self, mirror: String, instruction: Instruction, delta: bool) -> Result<(), &'static str> {
     let part_size :usize = 10u64.pow(6) as usize; //1.000.000
     //create a file in download location.
-    let file_path = format!("{}/patcher/{}", &self.RenegadeX_location.clone().unwrap(), instruction.new_hash.borrow());
+    let file_path = format!("{}/patcher/{}", &self.RenegadeX_location.borrow(), instruction.new_hash.borrow());
     let mut f = OpenOptions::new().read(true).write(true).create(true).open(&file_path).unwrap();
     //set the size of the file, add a 32bit integer to the end of the file as a means of tracking progress. We won't download parts async.
     let finished_file_size : usize = if delta { instruction.delta_size } else { instruction.full_replace_size };
