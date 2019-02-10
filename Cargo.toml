@@ -1,5 +1,5 @@
 [package]
-name = "lib_renegade_x_launcher"
+name = "lib_renegade_x_patcher"
 version = "0.1.0"
 authors = ["SonnyX"]
 edition = "2018"
@@ -9,3 +9,6 @@ reqwest = "0.9.5"
 json = "0.11.13"
 clap = "*"
 bit-vec = "0.5.0"
+sha2 = "0.8.0"
+hex = "0.3.2"
+rust-ini = "0.13.0"
