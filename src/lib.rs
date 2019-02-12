@@ -10,10 +10,11 @@ use ini::Ini;
 use sha2::{Sha256, Digest};
 use rayon::prelude::*;
 
-use std::process;
 use std::io;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::fs::{File,OpenOptions,DirBuilder};
+use std::time::{Duration, Instant};
+use std::sync::Mutex;
 
 trait AsString {
   fn as_string(&self) -> Option<String>;
@@ -56,6 +57,13 @@ pub struct Instruction {
   has_delta: bool
 }
 
+#[derive(Debug)]
+pub struct Mirror {
+  address: String,
+  speed: f64,
+  ping: f64,
+}
+
 /*
 pub struct Progress {
   entry:
@@ -69,8 +77,8 @@ pub struct ProgressArray {
 
 pub struct Downloader {
   RenegadeX_location: Option<String>, //Os dependant
-  version: Option<String>, //RenegadeX version as mentioned in release.json
   release_json: Option<json::JsonValue>, //release.json
+  mirrors: Vec<Mirror>, //List of mirrors, sorted by their speed
   instructions: Vec<Instruction>, //instructions.json
   compressed_size: Option<f64>, //summed download size from instructions.json
   instructions_hash: Option<String>, //Hash of instructions.json
@@ -78,16 +86,14 @@ pub struct Downloader {
 
 impl Downloader {
   pub fn new() -> Downloader {
-    let mut return_object = Downloader {
+    Downloader {
       RenegadeX_location: None,
-      version: None,
       release_json: None,
+      mirrors: Vec::new(),
       instructions: Vec::new(),
       compressed_size: None,
       instructions_hash: None,
-    };
-    return return_object
-
+    }
   }
 
   /**
@@ -101,15 +107,13 @@ impl Downloader {
     }
     let release_data = self.release_json.clone().unwrap();
     let path = format!("{}UDKGame/Config/DefaultRenegadeX.ini", self.RenegadeX_location.borrow());
-    let mut file = match File::open(&path) {
+    let conf = match Ini::load_from_file(&path) {
       Ok(file) => file,
-      Err(e) => { return true }
+      Err(_e) => { return true }
     };
-    let conf = Ini::load_from_file(&path).unwrap();
 
     let section = conf.section(Some("RenX_Game.Rx_Game".to_owned())).unwrap();
     let game_version_number = section.get("GameVersionNumber").unwrap();
-    let game_version = section.get("GameVersion").unwrap();
 
     if &release_data["game"]["version_number"].as_u64().unwrap().to_string() != game_version_number {
       return true;
@@ -134,18 +138,50 @@ impl Downloader {
       Err(e) => panic!("Invalid JSON: {}", e)
     };
     self.release_json = Some(release_data.clone());
+
+    //stop being a dick, and listen to sarah:
+    let mut mirror_vec = Vec::with_capacity(release_data["game"]["mirrors"].len());
+    release_data["game"]["mirrors"].members().for_each(|mirror| mirror_vec.push(mirror["url"].as_str().unwrap().to_string()) );
+    let mirror_array : Vec<Mirror> = Vec::with_capacity(release_data["game"]["mirrors"].len());
+    let data = Mutex::new(mirror_array);
+    mirror_vec.par_iter().for_each(|mirror| {
+      let mut url = mirror.clone();
+      let http_client = reqwest::Client::builder().timeout(Duration::from_secs(1)).build().unwrap();
+      url.push_str("10kb_file");
+      let download_request = http_client.get(url.as_str());
+      let start = Instant::now();
+      let download_response = download_request.send();
+      match download_response {
+        Ok(result) => {
+          let duration = start.elapsed();
+          if result.headers()["content-length"] != "10000" { println!("{:?}", result); }
+          let mirror_var = Mirror { 
+            address: mirror.clone(),
+            speed: (10000 as f64)/(duration.as_millis() as f64),
+            ping: (duration.as_micros() as f64)/(1000 as f64),
+          };
+          data.lock().unwrap().push(mirror_var);
+        },
+        Err(_e) => {
+          //this mirror will not be added
+        }
+      };
+    });
+    let mut mirror_array = data.into_inner().unwrap();
+    mirror_array.sort_unstable_by(|a,b| b.speed.partial_cmp(&a.speed).unwrap());
+    self.mirrors = mirror_array;
     self.instructions_hash = Some(String::from(release_data["game"]["instructions_hash"].as_str().unwrap()));
   }
 
   /**
   Downloads instructions.json from a mirror, checks its validity and if its valid it adds it to the struct
   */
-  fn get_instructions(&mut self) {
+  pub fn get_instructions(&mut self) {
     if self.release_json.is_none() {
       self.get_release();
     }
-    let mut instructions_url = format!("{}{}/instructions.json",
-      &self.release_json.borrow()["game"]["mirrors"][3]["url"].as_str().unwrap(), 
+    let instructions_url = format!("{}{}/instructions.json",
+      &self.release_json.borrow()["game"]["mirrors"][17]["url"].as_str().unwrap(), 
       &self.release_json.borrow()["game"]["patch_path"].as_str().unwrap());
     let mut instructions_response = match reqwest::get(&instructions_url) {
       Ok(result) => result,
@@ -160,9 +196,9 @@ impl Downloader {
       Err(e) => panic!("Invalid JSON: {}", e)
     };
 
-    let mut InstructionArray : Vec<Instruction> = Vec::with_capacity(instructions_data.len());
+    let mut instruction_array : Vec<Instruction> = Vec::with_capacity(instructions_data.len());
     for i in 0..instructions_data.len() {
-      InstructionArray.push(Instruction {
+      instruction_array.push(Instruction {
         path: instructions_data[i]["Path"].as_string().unwrap(),
         old_hash: instructions_data[i]["OldHash"].as_string(),
         new_hash: instructions_data[i]["NewHash"].as_string(),
@@ -175,8 +211,7 @@ impl Downloader {
         has_delta: instructions_data[i]["HasDelta"].as_bool().unwrap()
       });
     }
-
-    self.instructions = InstructionArray;
+    self.instructions = instruction_array;
   }
 
   /**
@@ -191,7 +226,7 @@ impl Downloader {
       self.get_instructions();
     }
     let _release_json = self.release_json.clone().unwrap();
-    let mirror = format!("{}{}/", &_release_json["game"]["mirrors"][3]["url"].as_str().unwrap(), &_release_json["game"]["patch_path"].as_str().unwrap());
+    let mirror = format!("{}{}/", &_release_json["game"]["mirrors"][17]["url"].as_str().unwrap(), &_release_json["game"]["patch_path"].as_str().unwrap());
     DirBuilder::new().recursive(true).create(format!("{}/patcher/",&self.RenegadeX_location.borrow())).unwrap();
     self.instructions.par_iter().for_each(|instruction| {
       //Let's check NewHash if it is supposed to be Null, if it is then the file needs to be deleted.
@@ -236,12 +271,12 @@ impl Downloader {
               }
             }
           },
-          Err(e) => { 
+          Err(_e) => { 
             //Download full file
             for retry in 0..3 {
               match self.download_file(mirror.clone(), instruction.clone(), false) {
                 Ok(()) => break,
-                Err(e) => if retry == 2 { panic!("{}", e) }
+                Err(er) => if retry == 2 { panic!("{}", er) }
               };
             }
           }
@@ -289,35 +324,38 @@ impl Downloader {
                          format!("{}full/{}", &mirror, instruction.new_hash.borrow())
                        };
     let http_client = reqwest::Client::new();
-    f.seek(SeekFrom::Start((finished_file_size) as u64));
+    f.seek(SeekFrom::Start((finished_file_size) as u64)).unwrap();
     let mut buf = [0,0,0,0];
-    f.read_exact(&mut buf);
+    f.read_exact(&mut buf).unwrap();
     let resume_part : usize = u32::from_be_bytes(buf) as usize;
     if resume_part != 0 { println!("Resuming download from part: {}", resume_part) };
     //iterate over all parts, downloading them into memory, writing them into the file, adding one to the counter at the end of the file.
+    let start = Instant::now();
     for part_int in resume_part..parts_amount {
       let bytes_start = part_int * part_size;
       let mut bytes_end = part_int * part_size + part_size -1;
       if bytes_end > finished_file_size {
         bytes_end = finished_file_size;
       }
-      let mut download_request = http_client.get(&download_url).header(reqwest::header::RANGE,format!("bytes={}-{}", bytes_start, bytes_end));
-      let mut download_response = download_request.send();
-      f.seek(SeekFrom::Start(bytes_start as u64));
+      let download_request = http_client.get(&download_url).header(reqwest::header::RANGE,format!("bytes={}-{}", bytes_start, bytes_end));
+      let download_response = download_request.send();
+      f.seek(SeekFrom::Start(bytes_start as u64)).unwrap();
       let mut content : Vec<u8> = Vec::with_capacity(bytes_end - bytes_start + 1);
-      download_response.unwrap().read_to_end(&mut content);
-      f.write_all(&content);
+      download_response.unwrap().read_to_end(&mut content).unwrap();
+      f.write_all(&content).unwrap();
       //completed downloading and writing this part, so update the progress-tracker at the end of the file
-      f.seek(SeekFrom::Start((finished_file_size) as u64));
-      f.write_all(&(part_int as u32).to_be_bytes());
+      f.seek(SeekFrom::Start((finished_file_size) as u64)).unwrap();
+      f.write_all(&(part_int as u32).to_be_bytes()).unwrap();
     }
+    let duration = start.elapsed();
     println!("Downloaded all parts!");
+    println!("Average speed: {} kB/s!", (finished_file_size as f64)/(duration.as_millis() as f64));
     //Remove the counter at the end of the file to finish the vcdiff file
-    f.set_len(finished_file_size as u64);
+    f.set_len(finished_file_size as u64).unwrap();
     println!("Shrinked the file!");
     
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
-    f.seek(SeekFrom::Start(0));
+    f.seek(SeekFrom::Start(0)).unwrap();
     let mut sha256 = Sha256::new();
     io::copy(&mut f, &mut sha256).unwrap();
     let hash = sha256.result();
@@ -340,8 +378,9 @@ mod tests {
     let mut patcher : Downloader = Downloader::new();
     patcher.RenegadeX_location = Some("/home/sonny/RenegadeX/game_files/".to_string());
     let update : bool = patcher.update_available();
+    //patcher.get_instructions();
     assert_eq!(update,true);
-    patcher.update();
+    //patcher.update();
     assert!(false);
   }
 }
