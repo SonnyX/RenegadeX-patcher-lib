@@ -5,19 +5,21 @@ extern crate hex;
 extern crate ini;
 extern crate rayon;
 extern crate rand;
+extern crate xdelta;
 
-use ini::Ini;
-
-use sha2::{Sha256, Digest};
-use rayon::prelude::*;
-use rand::Rng;
-
+//standard libraries
 use std::io;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::fs::{File,OpenOptions,DirBuilder};
 use std::time::{Duration, Instant};
 use std::sync::Mutex;
 use std::panic;
+
+//external crates
+use ini::Ini;
+use sha2::{Sha256, Digest};
+use rayon::prelude::*;
+use rand::Rng;
 
 trait AsString {
   fn as_string(&self) -> Option<String>;
@@ -263,7 +265,7 @@ impl Downloader {
         let path = format!("{}{}", self.RenegadeX_location.borrow(), instruction.path.replace("\\","/"));
         match std::fs::remove_file(&path) {
           Ok(()) => (),
-          Err(e) => println!("Couldn't remove file: {:?}", e) 
+          Err(_e) => {} 
         };
       } else {
         //Compare the installed/existing files with the OldHash 
@@ -331,8 +333,37 @@ impl Downloader {
       }
     });
     let patch_queue = patch_queue.into_inner().unwrap();
-    println!("{:#?}", patch_queue);
-    //self.download_file(mirror, _instructions_json[0].clone(), true);
+
+    patch_queue.par_iter().for_each(|patch_entry| {
+      let mut dir_path = patch_entry.target_path.clone();
+      dir_path.truncate(patch_entry.target_path.rfind('/').unwrap());
+      DirBuilder::new().recursive(true).create(dir_path).unwrap();
+      println!("Patch_path: {}", &patch_entry.delta_path);
+      println!("target_path: {}", &patch_entry.target_path);
+      if patch_entry.has_source {
+        let source_path = format!("{}.vcdiff_src", &patch_entry.target_path);
+        std::fs::rename(&patch_entry.target_path, &source_path).unwrap();
+        xdelta::decode_file(Some(&source_path), &patch_entry.delta_path, &patch_entry.target_path);
+        std::fs::remove_file(&source_path).unwrap();
+        //std::fs::remove_file(&patch_entry.delta_path).unwrap();
+      } else {
+        //there is no source file, so make sure it doesn't exist either!
+        match std::fs::remove_file(&patch_entry.target_path) {
+          Ok(()) => (),
+          Err(_e) => ()
+        };
+        xdelta::decode_file(None, &patch_entry.delta_path, &patch_entry.target_path);
+        //std::fs::remove_file(&patch_entry.delta_path).unwrap();
+      }
+      let mut f = OpenOptions::new().read(true).open(&patch_entry.target_path).unwrap();
+      let mut sha256 = Sha256::new();
+      io::copy(&mut f, &mut sha256).unwrap();
+      let hash = sha256.result();
+      if &hash[..] != &hex::decode(&patch_entry.target_hash).unwrap()[..] {
+        println!("Hash is incorrect!");
+        println!("{:#?}", patch_entry);
+      }
+    });
   }
 
   /**
@@ -356,8 +387,8 @@ impl Downloader {
         let hash = sha256.result();
         if &hash[..] == &hex::decode(if delta { instruction.delta_hash.borrow() } else { instruction.compressed_hash.borrow() }).unwrap()[..] {
           let patch_entry = PatchEntry {
-            target_path: instruction.path,
-            delta_path: file_path,
+            target_path: format!("{}{}", &self.RenegadeX_location.borrow(), instruction.path).replace("\\","/").replace("//", "/"),
+            delta_path: file_path.replace("\\","/").replace("//", "/"),
             has_source: delta,
             target_hash: instruction.new_hash.unwrap()
           };
@@ -417,16 +448,14 @@ impl Downloader {
     if &hash[..] != &hex::decode(if delta { instruction.delta_hash.borrow() } else { instruction.compressed_hash.borrow() }).unwrap()[..] {
       println!("Hash is incorrect!");
       return Err("Downloaded file's hash did not match with the one provided in Instructions.json");
-      //somehow restart the download :(
     }
     let patch_entry = PatchEntry {
-      target_path: instruction.path,
-      delta_path: file_path,
+      target_path: format!("{}{}", &self.RenegadeX_location.borrow(), instruction.path).replace("\\","/").replace("//", "/"),
+      delta_path: file_path.replace("\\","/").replace("//", "/"),
       has_source: delta,
       target_hash: instruction.new_hash.unwrap()
     };
     return Ok(patch_entry);
-    //created a vcdiff library which is able to decompress this.
   }
 }
 
