@@ -4,17 +4,20 @@ extern crate sha2;
 extern crate hex;
 extern crate ini;
 extern crate rayon;
+extern crate rand;
 
 use ini::Ini;
 
 use sha2::{Sha256, Digest};
 use rayon::prelude::*;
+use rand::Rng;
 
 use std::io;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::fs::{File,OpenOptions,DirBuilder};
 use std::time::{Duration, Instant};
 use std::sync::Mutex;
+use std::panic;
 
 trait AsString {
   fn as_string(&self) -> Option<String>;
@@ -180,22 +183,42 @@ impl Downloader {
     if self.release_json.is_none() {
       self.get_release();
     }
-    let instructions_url = format!("{}{}/instructions.json",
-      &self.release_json.borrow()["game"]["mirrors"][17]["url"].as_str().unwrap(), 
-      &self.release_json.borrow()["game"]["patch_path"].as_str().unwrap());
-    let mut instructions_response = match reqwest::get(&instructions_url) {
-      Ok(result) => result,
-      Err(e) => panic!("Is your internet down? {}", e)
-    };
-    let instructions_text = match instructions_response.text() {
-      Ok(result) => result,
-      Err(e) => panic!("Corrupted response: {}", e)
-    };
+    let instructions_mutex : Mutex<String> = Mutex::new("".to_string());
+    for retry in 0..3 {
+      let result = panic::catch_unwind(|| {
+        let instructions_url = format!("{}{}/instructions.json",
+          &self.mirrors[retry].address, 
+          &self.release_json.borrow()["game"]["patch_path"].as_str().unwrap());
+        let mut instructions_response = match reqwest::get(&instructions_url) {
+          Ok(result) => result,
+          Err(e) => panic!("Is your internet down? {}", e)
+        };
+        let text = instructions_response.text().unwrap();
+        // check instructions hash
+        let mut sha256 = Sha256::new();
+        sha256.input(&text);
+        let hash = sha256.result();
+        if &hash[..] != &hex::decode(self.release_json.borrow()["game"]["instructions_hash"].as_str().unwrap()).unwrap()[..] {
+          panic!("Hashes did not match!");
+        }
+        *instructions_mutex.lock().unwrap() = text;
+      });
+      if result.is_ok() {
+        for _i in 0..retry {
+          println!("Removing mirror: {:#?}", &self.mirrors[0]);
+          self.mirrors.remove(0);
+        }
+        break;
+      } else if result.is_err() && retry == 2 {
+        panic!("Couldn't fetch instructions.json");
+      }
+    }
+    let instructions_text : String = instructions_mutex.into_inner().unwrap();
     let instructions_data = match json::parse(&instructions_text) {
       Ok(result) => result,
       Err(e) => panic!("Invalid JSON: {}", e)
     };
-
+    // hash matches with the one in release.json, copy to self.instructions
     let mut instruction_array : Vec<Instruction> = Vec::with_capacity(instructions_data.len());
     for i in 0..instructions_data.len() {
       instruction_array.push(Instruction {
@@ -214,6 +237,10 @@ impl Downloader {
     self.instructions = instruction_array;
   }
 
+  fn get_mirror(&self, entry: usize) -> String {
+    format!("{}{}/", &self.mirrors[entry].address, self.release_json.borrow()["game"]["patch_path"].as_str().unwrap())
+  }
+
   /**
   Iterates over the entries in instructions.json and does the following:
    * Checks if the file already exists
@@ -226,9 +253,9 @@ impl Downloader {
       self.get_instructions();
     }
     let _release_json = self.release_json.clone().unwrap();
-    let mirror = format!("{}{}/", &_release_json["game"]["mirrors"][17]["url"].as_str().unwrap(), &_release_json["game"]["patch_path"].as_str().unwrap());
     DirBuilder::new().recursive(true).create(format!("{}/patcher/",&self.RenegadeX_location.borrow())).unwrap();
     self.instructions.par_iter().for_each(|instruction| {
+      let mut rng = rand::thread_rng();
       //Let's check NewHash if it is supposed to be Null, if it is then the file needs to be deleted.
       if instruction.new_hash.is_none() {
         let path = format!("{}{}", self.RenegadeX_location.borrow(), instruction.path.replace("\\","/"));
@@ -251,7 +278,10 @@ impl Downloader {
                 //a delta should be available, but let's make sure
                 if instruction.has_delta {
                   for retry in 0..3 {
-                    match self.download_file(mirror.clone(), instruction.clone(), true) {
+                    let mut mirror_entry : f32 = rng.gen();
+                    mirror_entry *= 2.999;
+                    mirror_entry = mirror_entry.floor();
+                    match self.download_file(self.get_mirror(mirror_entry as usize), instruction.clone(), true) {
                       Ok(()) => break,
                       Err(e) => if retry == 2 { panic!("{}", e) }
                     };
@@ -263,7 +293,10 @@ impl Downloader {
               if &hash[..] != &hex::decode(instruction.new_hash.borrow()).unwrap()[..] {
                 //Nor does it match the NewHash, thus a full file download is required.
                 for retry in 0..3 {
-                  match self.download_file(mirror.clone(), instruction.clone(), false) {
+                  let mut mirror_entry : f32 = rng.gen();
+                  mirror_entry *= 2.999;
+                  mirror_entry = mirror_entry.floor();
+                  match self.download_file(self.get_mirror(mirror_entry as usize), instruction.clone(), false) {
                     Ok(()) => break,
                     Err(e) => if retry == 2 { panic!("{}", e) }
                   };
@@ -274,7 +307,10 @@ impl Downloader {
           Err(_e) => { 
             //Download full file
             for retry in 0..3 {
-              match self.download_file(mirror.clone(), instruction.clone(), false) {
+              let mut mirror_entry : f32 = rng.gen();
+              mirror_entry *= 2.999;
+              mirror_entry = mirror_entry.floor();
+              match self.download_file(self.get_mirror(mirror_entry as usize), instruction.clone(), false) {
                 Ok(()) => break,
                 Err(er) => if retry == 2 { panic!("{}", er) }
               };
@@ -378,9 +414,9 @@ mod tests {
     let mut patcher : Downloader = Downloader::new();
     patcher.RenegadeX_location = Some("/home/sonny/RenegadeX/game_files/".to_string());
     let update : bool = patcher.update_available();
-    //patcher.get_instructions();
+    patcher.get_instructions();
     assert_eq!(update,true);
-    //patcher.update();
-    assert!(false);
+    patcher.update();
+    assert!(true);
   }
 }
