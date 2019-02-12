@@ -66,24 +66,25 @@ pub struct Mirror {
   speed: f64,
   ping: f64,
 }
-
 /*
-pub struct Progress {
-  entry:
-  percentage
-}
-
-pub struct ProgressArray {
-  
+pub smth DownloadQueue {
+  Vec<hash_of_download mirrorlink isdelta>
 }
 */
+#[derive(Debug)]
+pub struct PatchEntry {
+  target_path: String,
+  delta_path: String,
+  has_source: bool,
+  target_hash: String,
+}
 
 pub struct Downloader {
-  RenegadeX_location: Option<String>, //Os dependant
+  pub RenegadeX_location: Option<String>, //Os dependant
   release_json: Option<json::JsonValue>, //release.json
   mirrors: Vec<Mirror>, //List of mirrors, sorted by their speed
   instructions: Vec<Instruction>, //instructions.json
-  compressed_size: Option<f64>, //summed download size from instructions.json
+  compressed_size: Option<u64>, //summed download size from instructions.json
   instructions_hash: Option<String>, //Hash of instructions.json
 }
 
@@ -254,6 +255,7 @@ impl Downloader {
     }
     let _release_json = self.release_json.clone().unwrap();
     DirBuilder::new().recursive(true).create(format!("{}/patcher/",&self.RenegadeX_location.borrow())).unwrap();
+    let patch_queue : Mutex<Vec<PatchEntry>> = Mutex::new(Vec::with_capacity(self.instructions.len()));
     self.instructions.par_iter().for_each(|instruction| {
       let mut rng = rand::thread_rng();
       //Let's check NewHash if it is supposed to be Null, if it is then the file needs to be deleted.
@@ -282,7 +284,10 @@ impl Downloader {
                     mirror_entry *= 2.999;
                     mirror_entry = mirror_entry.floor();
                     match self.download_file(self.get_mirror(mirror_entry as usize), instruction.clone(), true) {
-                      Ok(()) => break,
+                      Ok(patch_entry) => {
+                        patch_queue.lock().unwrap().push(patch_entry);
+                        break
+                      },
                       Err(e) => if retry == 2 { panic!("{}", e) }
                     };
                   }
@@ -297,7 +302,10 @@ impl Downloader {
                   mirror_entry *= 2.999;
                   mirror_entry = mirror_entry.floor();
                   match self.download_file(self.get_mirror(mirror_entry as usize), instruction.clone(), false) {
-                    Ok(()) => break,
+                    Ok(patch_entry) => {
+                      patch_queue.lock().unwrap().push(patch_entry);
+                      break
+                    },
                     Err(e) => if retry == 2 { panic!("{}", e) }
                   };
                 }
@@ -311,7 +319,10 @@ impl Downloader {
               mirror_entry *= 2.999;
               mirror_entry = mirror_entry.floor();
               match self.download_file(self.get_mirror(mirror_entry as usize), instruction.clone(), false) {
-                Ok(()) => break,
+                Ok(patch_entry) => {
+                  patch_queue.lock().unwrap().push(patch_entry);
+                  break
+                },
                 Err(er) => if retry == 2 { panic!("{}", er) }
               };
             }
@@ -319,13 +330,15 @@ impl Downloader {
         };
       }
     });
+    let patch_queue = patch_queue.into_inner().unwrap();
+    println!("{:#?}", patch_queue);
     //self.download_file(mirror, _instructions_json[0].clone(), true);
   }
 
   /**
   Downloads a file based on an entry from instructions.json, delta specifies if it has to be the delta or the full file.
   */
-  fn download_file(&self, mirror: String, instruction: Instruction, delta: bool) -> Result<(), &'static str> {
+  fn download_file(&self, mirror: String, instruction: Instruction, delta: bool) -> Result<PatchEntry, &'static str> {
     let part_size :usize = 10u64.pow(6) as usize; //1.000.000
     //create a file in download location.
     let file_path = format!("{}/patcher/{}", &self.RenegadeX_location.borrow(), instruction.new_hash.borrow());
@@ -342,7 +355,13 @@ impl Downloader {
         io::copy(&mut f, &mut sha256).unwrap();
         let hash = sha256.result();
         if &hash[..] == &hex::decode(if delta { instruction.delta_hash.borrow() } else { instruction.compressed_hash.borrow() }).unwrap()[..] {
-          return Ok(());
+          let patch_entry = PatchEntry {
+            target_path: instruction.path,
+            delta_path: file_path,
+            has_source: delta,
+            target_hash: instruction.new_hash.unwrap()
+          };
+          return Ok(patch_entry);
         }
       }
       println!("File size ({}) of patch file {} is smaller than it should be ({})",f.metadata().unwrap().len(), instruction.new_hash.borrow(), file_size);
@@ -400,7 +419,13 @@ impl Downloader {
       return Err("Downloaded file's hash did not match with the one provided in Instructions.json");
       //somehow restart the download :(
     }
-    return Ok(());
+    let patch_entry = PatchEntry {
+      target_path: instruction.path,
+      delta_path: file_path,
+      has_source: delta,
+      target_hash: instruction.new_hash.unwrap()
+    };
+    return Ok(patch_entry);
     //created a vcdiff library which is able to decompress this.
   }
 }
@@ -415,7 +440,7 @@ mod tests {
     patcher.RenegadeX_location = Some("/home/sonny/RenegadeX/game_files/".to_string());
     let update : bool = patcher.update_available();
     patcher.get_instructions();
-    assert_eq!(update,true);
+    //assert_eq!(update,true);
     patcher.update();
     assert!(true);
   }
