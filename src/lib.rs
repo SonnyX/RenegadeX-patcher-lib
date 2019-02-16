@@ -27,6 +27,7 @@ pub struct Progress {
   pub download_size: (u64,u64), //Downloaded .. out of .. bytes
   patch_files: (u64, u64), //Patched .. out of .. files
   pub finished_hash: bool,
+  pub finished_patching: bool,
 }
 
 impl Progress {
@@ -35,6 +36,7 @@ impl Progress {
       download_size: (0,0),
       patch_files: (0,0),
       finished_hash: false,
+      finished_patching: false,
     }
   }
 }
@@ -365,8 +367,12 @@ impl Downloader {
       });
       std::fs::remove_file(&download_entry.file_path).unwrap();
     });
+    {
+      let mut state = self.state.lock().unwrap();
+      state.finished_patching = true;
+    }
     //remove patcher folder and all remaining files in there:
-    std::fs::remove_dir_all(format!("{}patcher/", &self.renegadex_location)).unwrap();
+    std::fs::remove_dir_all(format!("{}patcher/", &self.renegadex_location.borrow())).unwrap();
   }
 
 
@@ -492,17 +498,23 @@ impl Downloader {
     let state = self.state.clone();
     std::thread::spawn(move || {
       let mut finished_hash = false;
+      let mut finished_patching = false;
+      let start_time = std::time::Instant::now();
+      let mut old_time = std::time::Instant::now();
       let mut old_download_size : (u64, u64) = (0, 0);
-      while !finished_hash {
-        std::thread::sleep(std::time::Duration::from_millis(1));
+      while !finished_patching {
+        std::thread::sleep(std::time::Duration::from_millis(500));
         let mut download_size : (u64, u64) = (0, 0);
         {
           let state = state.lock().unwrap();
           finished_hash = state.finished_hash.clone();
+          finished_patching = state.finished_patching.clone();
           download_size = state.download_size.clone();
         }
         if old_download_size != download_size {
-          println!("{:#?}", download_size);
+          let elapsed = old_time.elapsed();
+          old_time = std::time::Instant::now();
+          println!("Downloaded {:.3}/{:.3} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000001, (download_size.1 as f64)*0.000001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
           old_download_size = download_size;
         }
       }
