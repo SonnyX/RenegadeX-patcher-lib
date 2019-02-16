@@ -365,6 +365,8 @@ impl Downloader {
       });
       std::fs::remove_file(&download_entry.file_path).unwrap();
     });
+    //remove patcher folder and all remaining files in there:
+    std::fs::remove_dir_all(format!("{}patcher/", &self.renegadex_location)).unwrap();
   }
 
 
@@ -515,12 +517,12 @@ mod tests {
   fn downloader() {
     let mut patcher : Downloader = Downloader::new();
     patcher.set_location("/home/sonny/RenegadeX/game_files/".to_string());
-    patcher.retrieve_mirrors(&"https://static.renegade-x.com/launcher_data/version/beta.json".to_string());
+    patcher.retrieve_mirrors(&"https://static.renegade-x.com/launcher_data/version/release.json".to_string());
     if patcher.update_available() {
       println!("Update available!");
+      patcher.poll_progress();
+      patcher.download();
     };
-    patcher.poll_progress();
-    patcher.download();
     assert!(true);
   }
 }
