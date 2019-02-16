@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 use std::sync::Mutex;
 
-use crate::traits::{AsString, BorrowUnwrap};
+use crate::traits::AsString;
 
 use rayon::prelude::*;
 

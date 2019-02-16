@@ -8,8 +8,7 @@ extern crate hex;
 //Standard library
 use std::collections::HashMap;
 use std::io::{Read, Write, Seek, SeekFrom};
-use std::fs::{File,OpenOptions,DirBuilder};
-use std::time::{Duration, Instant};
+use std::fs::{OpenOptions,DirBuilder};
 use std::sync::{Arc, Mutex};
 use std::panic;
 
@@ -24,55 +23,9 @@ use rayon::prelude::*;
 use ini::Ini;
 use sha2::{Sha256, Digest};
 
-/*
----------      ------------  par   --------------------
-| Entry |  --> | Get Json | ---->  | Try to Open File | 
----------      ------------        --------------------
-                                    |                |
-                                    |                |
-                          ------------------    ----------
-                          | Err(Not Found) |    | Ok(()) |
-                          ------------------    ----------
-                                |                   |
-                                |                   |
-                   ------------------------   --------------------
-                   | Add to DownloadQueue |   | Add to HashQueue |
-                   | Add size to size sum |   --------------------
-                   | Add to Patch HashMap |
-                   ------------------------
-
-DownloadQueue consists of: HashMap of "DownloadFileName":boolean (being downloaded?)
-and consists of a FIFO buffer which can be used to 
-
-
--------------  par ----------------------     -----------------------
-| HashQueue |  --> | Check Hash of File | --> | Compare to OldDelta | 
--------------      ----------------------     -----------------------
-                                                |                |
-                                                |                |
-                                        -------------       ----------
-                                        | Different |       |  Same  |
-                                        -------------       ----------
-                                             |                   |
-                                             |                   |
-                        ----------------------------------   ------------------------------
-                        | Add Full File to DownloadQueue |   | Add Delta to DownloadQueue |
-                        |      Add size to size sum      |   |    Add size to size sum    |
-                        |      Add to Patch HashMap      |   |    Add to Patch Hashmap    |
-                        ----------------------------------   ------------------------------
-
-
-//add a DownloadQueue bockchain
-DeltaQueue needs to be a key-value map, where key is the patch-name, the value would be a Vec<Object>
-
--------------- par --------------------------------------------------
-| DeltaQueue | --> | apply patch to all files that match this Delta |
---------------     --------------------------------------------------
-*/
-
 pub struct Progress {
   pub download_size: (u64,u64), //Downloaded .. out of .. bytes
-  patch_files: (u64, u64), //Patches .. out of .. files
+  patch_files: (u64, u64), //Patched .. out of .. files
   pub finished_hash: bool,
 }
 
@@ -257,12 +210,11 @@ impl Downloader {
    * 
    */
   fn process_instructions(&self, instructions_data: json::JsonValue) {
-    let mut instruction_array : Vec<Instruction> = Vec::with_capacity(instructions_data.len());
     instructions_data.into_inner().par_iter().for_each(|instruction| {
       //lets start off by trying to open the file.
       let file_path = format!("{}{}", self.renegadex_location.borrow(), instruction["Path"].as_string().replace("\\", "/"));
       match OpenOptions::new().read(true).open(&file_path) {
-        Ok(file) => {
+        Ok(_file) => {
           if !instruction["NewHash"].is_null() {
             let mut hash_queue = self.hash_queue.lock().unwrap();
             let hash_entry = Instruction {
@@ -310,22 +262,22 @@ impl Downloader {
   }
 
 /*
--------------  par ----------------------     -----------------------
-| HashQueue |  --> | Check Hash of File | --> | Compare to OldDelta | 
--------------      ----------------------     -----------------------
-                                                |                |
-                                                |                |
-                                        -------------       ----------
-                                        | Different |       |  Same  |
-                                        -------------       ----------
-                                             |                   |
-                                             |                   |
-                        ----------------------------------   ------------------------------
-                        | Add Full File to DownloadQueue |   | Add Delta to DownloadQueue |
-                        |      Add size to size sum      |   |    Add size to size sum    |
-                        |      Add to Patch HashMap      |   |    Add to Patch Hashmap    |
-                        ----------------------------------   ------------------------------
-*/
+ * -------------  par ----------------------     -----------------------
+ * | HashQueue |  --> | Check Hash of File | --> | Compare to OldDelta | 
+ * -------------      ----------------------     -----------------------
+ *                                                 |                |
+ *                                                 |                |
+ *                                         -------------       ----------
+ *                                         | Different |       |  Same  |
+ *                                         -------------       ----------
+ *                                              |                   |
+ *                                              |                   |
+ *                         ----------------------------------   ------------------------------
+ *                         | Add Full File to DownloadQueue |   | Add Delta to DownloadQueue |
+ *                         |      Add size to size sum      |   |    Add size to size sum    |
+ *                         |      Add to Patch HashMap      |   |    Add to Patch Hashmap    |
+ *                         ----------------------------------   ------------------------------
+ */
   fn check_hashes(&mut self) {
     let hash_queue = self.hash_queue.lock().unwrap();
     hash_queue.par_iter().for_each(|hash_entry| {
@@ -394,13 +346,18 @@ impl Downloader {
   fn download_files(&self) {
     let download_hashmap = self.download_hashmap.lock().unwrap();
     download_hashmap.par_iter().for_each(|(key, download_entry)| {
-      for attempt in 0..1 {
+      for attempt in 0..5 {
         let download_url = match download_entry.patch_entries[0].has_source {
           true => format!("{}/delta/{}", self.mirrors.mirrors[attempt].address, &key),
           false => format!("{}/full/{}", self.mirrors.mirrors[attempt].address, &key)
         };
         
-        self.download_file(download_url, download_entry);
+        match self.download_file(download_url, download_entry) {
+          Ok(()) => break,
+          Err(_e) => {
+            if attempt == 4 { panic!("Couldn't download file: {}", &key) }
+          },
+        };
       }
       //apply delta
       download_entry.patch_entries.par_iter().for_each(|patch_entry| {
@@ -487,6 +444,10 @@ impl Downloader {
 
 /*
  * Applies the vcdiff patch file to the target file.
+ * 
+ * -------------- par --------------------------------------------------
+ * | DeltaQueue | --> | apply patch to all files that match this Delta |
+ * --------------     --------------------------------------------------
  */
   fn apply_patch(&self, patch_entry: &PatchEntry) {
     let mut dir_path = patch_entry.target_path.clone();
