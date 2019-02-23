@@ -346,6 +346,8 @@ impl Downloader {
  * Iterates over the hash_queue and downloads the files
  */
   fn download_files(&self) {
+    let mut dir_path = format!("{}patcher/", self.renegadex_location.borrow());
+    DirBuilder::new().recursive(true).create(dir_path).unwrap();
     let download_hashmap = self.download_hashmap.lock().unwrap();
     download_hashmap.par_iter().for_each(|(key, download_entry)| {
       for attempt in 0..5 {
@@ -384,7 +386,13 @@ impl Downloader {
     //println!("{:#?}", &download_entry);
 
     let part_size = 10u64.pow(6) as usize; //1.000.000
-    let mut f = OpenOptions::new().read(true).write(true).create(true).open(&download_entry.file_path).unwrap();
+    let mut f = match OpenOptions::new().read(true).write(true).create(true).open(&download_entry.file_path) {
+      Ok(file) => file,
+      Err(e) => {
+        println!("Couldn't open file \"{}\": {:?}", &download_entry.file_path, e);
+        return Err("Couldn't open delta_file in fn download_file()");
+      }
+    };
     //set the size of the file, add a 32bit integer to the end of the file as a means of tracking progress. We won't download parts async.
     let parts_amount : usize = download_entry.file_size / part_size + if download_entry.file_size % part_size > 0 {1} else {0};
     let file_size : usize = download_entry.file_size + 4;
@@ -400,7 +408,7 @@ impl Downloader {
         }
       }
       match f.set_len(file_size as u64) {
-        Ok(()) => println!("Succesfully set file size"),
+        Ok(()) => {},
         Err(e) => {
           println!("Couldn't set file size! {}", e);
           return Err("Could not change file size of patch file, is it in use?");
@@ -413,7 +421,7 @@ impl Downloader {
     f.read_exact(&mut buf).unwrap();
     let resume_part : usize = u32::from_be_bytes(buf) as usize;
     if resume_part != 0 { 
-      println!("Resuming download from part: {}", resume_part);
+      println!("Resuming download \"{}\" from part {} out of {}", &download_entry.file_hash, resume_part, parts_amount);
       let mut state = self.state.lock().unwrap();
       state.download_size.0 += (part_size * resume_part) as u64;
     };
