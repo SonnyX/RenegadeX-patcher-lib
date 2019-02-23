@@ -1,12 +1,8 @@
 [package]
-name = "lib_renegade_x_patcher"
+name = "renegadex_patcher"
 version = "0.1.0"
 authors = ["SonnyX"]
 edition = "2018"
-
-[lib]
-name="renegadex_patcher"
-crate-type = ["dylib"]
 
 [dependencies]
 reqwest = "0.9.5"
@@ -21,21 +17,7 @@ xdelta = { git = "https://github.com/SonnyX/xdelta-decoder-rust.git" }
 [profile.test]
 opt-level = 3
 debug = 2
-rpath = false
-lto = false
-debug-assertions = true
-codegen-units = 16
-panic = 'unwind'
-incremental = true
-overflow-checks = true
 
 [profile.dev]
 opt-level = 3
 debug = true
-rpath = false
-lto = false
-debug-assertions = true
-codegen-units = 16
-panic = 'unwind'
-incremental = true
-overflow-checks = true
