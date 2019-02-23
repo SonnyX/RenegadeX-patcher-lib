@@ -494,7 +494,7 @@ impl Downloader {
     }
     let hash = self.get_hash(&patch_entry.target_path);
     if &hash != &patch_entry.target_hash {
-      panic!("Hash for file {} is incorrect!", &patch_entry.target_path);
+      panic!("Hash for file {} is incorrect!\nExpected hash: {}\nGot hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash);
     }
   }
 
@@ -533,9 +533,9 @@ impl Downloader {
           let elapsed = old_time.elapsed();
           old_time = std::time::Instant::now();
           if !finished_hash {
-            println!("Comparing files, total to be downloaded: {:.3} MB", (download_size.1 as f64)*0.000001);
+            println!("Comparing files, total to be downloaded: {:.1} MB", (download_size.1 as f64)*0.000001);
           } else {
-            println!("Downloaded {:.3}/{:.3} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000001, (download_size.1 as f64)*0.000001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
+            println!("Downloaded {:.1}/{:.1} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000001, (download_size.1 as f64)*0.000001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
           }
           old_download_size = download_size;
         }
