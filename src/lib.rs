@@ -310,7 +310,7 @@ impl Downloader {
           target_path: hash_entry.path.clone(),
           delta_path: delta_path,
           has_source: true,
-          target_hash: key.clone(),
+          target_hash: hash_entry.new_hash.clone().unwrap(),
         };
         download_hashmap.get_mut(&key).unwrap().patch_entries.push(patch_entry);
       } else if hash_entry.new_hash.is_some() && &file_hash == hash_entry.new_hash.borrow() {
@@ -343,7 +343,7 @@ impl Downloader {
           target_path: hash_entry.path.clone(),
           delta_path: delta_path,
           has_source: false,
-          target_hash: key.clone(),
+          target_hash: hash_entry.new_hash.clone().unwrap(),
         };
         download_hashmap.get_mut(key).unwrap().patch_entries.push(patch_entry);
       }
@@ -494,7 +494,7 @@ impl Downloader {
     }
     let hash = self.get_hash(&patch_entry.target_path);
     if &hash != &patch_entry.target_hash {
-      panic!("Hash for file {} is incorrect!\nExpected hash: {}\nGot hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash);
+      panic!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash);
     }
   }
 
