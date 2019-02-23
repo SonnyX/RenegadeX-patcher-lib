@@ -293,7 +293,12 @@ impl Downloader {
           let download_entry = DownloadEntry {
             file_path: delta_path.clone(),
             file_size: hash_entry.delta_size,
-            file_hash: hash_entry.delta_hash.clone().unwrap(),
+            file_hash: match hash_entry.delta_hash.clone() {
+              Some(hash) => hash,
+              None => {
+                panic!("Delta hash is empty for download_entry: {:?}", hash_entry)
+              }
+            },
             patch_entries: Vec::new(),
           };
           download_hashmap.insert(key.clone(), download_entry);
@@ -321,7 +326,12 @@ impl Downloader {
          let download_entry = DownloadEntry {
             file_path: delta_path.clone(),
             file_size: hash_entry.full_replace_size,
-            file_hash: hash_entry.compressed_hash.clone().unwrap(),
+            file_hash: match hash_entry.compressed_hash.clone() {
+              Some(hash) => hash,
+              None => {
+                panic!("Delta hash is empty for download_entry: {:?}", hash_entry)
+              }
+            },
             patch_entries: Vec::new(),
           };
           download_hashmap.insert(key.clone(), download_entry);
