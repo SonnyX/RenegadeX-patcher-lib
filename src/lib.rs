@@ -284,7 +284,7 @@ impl Downloader {
     let hash_queue = self.hash_queue.lock().unwrap();
     hash_queue.par_iter().for_each(|hash_entry| {
       let file_hash = self.get_hash(&hash_entry.path);
-      if hash_entry.old_hash.is_some() && hash_entry.new_hash.is_some() && &file_hash == hash_entry.old_hash.borrow() && &file_hash != hash_entry.new_hash.borrow() {
+      if hash_entry.old_hash.is_some() && hash_entry.new_hash.is_some() && &file_hash == hash_entry.old_hash.borrow() && &file_hash != hash_entry.new_hash.borrow() && hash_entry.has_delta {
         //download patch file
         let key = format!("{}_from_{}", hash_entry.new_hash.borrow(), hash_entry.old_hash.borrow());
         let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
@@ -318,7 +318,7 @@ impl Downloader {
       } else {
         //this file does not math old hash, nor the new hash, thus it's corrupted
         //download full file
-        println!("File {} is corrupted!", &hash_entry.path);
+        println!("No suitable patch file found for \"{}\", downloading full file!", &hash_entry.path);
         let key : &String = hash_entry.new_hash.borrow();
         let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
         let mut download_hashmap = self.download_hashmap.lock().unwrap();
