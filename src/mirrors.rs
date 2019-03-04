@@ -72,13 +72,21 @@ impl Mirrors {
       match download_response {
         Ok(result) => {
           let duration = start.elapsed();
-          if result.headers()["content-length"] != "10000" { println!("{:?}", result); }
-          let mirror_var = Mirror { 
-            address: format!("{}{}", &mirror, &patch_path),
-            speed: (10000 as f64)/(duration.as_millis() as f64),
-            ping: (duration.as_micros() as f64)/(1000 as f64),
-          };
-          data.lock().unwrap().push(mirror_var);
+          let content_length = result.headers().get("content-length");
+          if content_length.is_none() {
+            println!("Error, mirror {} did not return header content-length, instead: {:#?}", &mirror, result.headers());
+          } else {
+            if content_length.unwrap() != "10000" { 
+              println!("{:?}", result);
+            } else {
+              let mirror_var = Mirror { 
+                address: format!("{}{}", &mirror, &patch_path),
+                speed: (10000 as f64)/(duration.as_millis() as f64),
+                ping: (duration.as_micros() as f64)/(1000 as f64),
+              };
+              data.lock().unwrap().push(mirror_var);
+            }
+          }
         },
         Err(_e) => {
           //this mirror will not be added, error can thus be ignored.
