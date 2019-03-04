@@ -231,6 +231,7 @@ impl Downloader {
             };
             hash_queue.push(hash_entry);
           } else {
+            
             //TODO: DeletionQueue, delete it straight away?
           }
         },
@@ -283,7 +284,33 @@ impl Downloader {
   fn check_hashes(&mut self) {
     let hash_queue = self.hash_queue.lock().unwrap();
     hash_queue.par_iter().for_each(|hash_entry| {
-      let file_hash = self.get_hash(&hash_entry.path);
+      let file_path_source = format!("{}.vcdiff_src", &hash_entry.path);
+      let file_hash = match OpenOptions::new().read(true).open(&file_path_source) {
+        Ok(_file) => {
+          if hash_entry.old_hash.is_some() && &self.get_hash(&file_path_source) == hash_entry.old_hash.borrow() {
+            match std::fs::remove_file(&hash_entry.path) {
+              Ok(()) => {},
+              Err(_e) => {
+                println!("Couldn't remove file before renaming .vcdiff_src...");
+              },
+            }
+            std::fs::rename(&file_path_source, &hash_entry.path).unwrap();
+          } else {
+            match std::fs::remove_file(&file_path_source) {
+              Ok(()) => {
+                println!("Removed .vcdiff_src which did not match old_hash...");
+              },
+              Err(_e) => {
+                println!("Couldn't remove .vcdiff_src which did not match old_hash...");
+              }
+            }
+          }
+          self.get_hash(&hash_entry.path)
+        },
+        Err(_e) => {
+          self.get_hash(&hash_entry.path)
+        },
+      };
       if hash_entry.old_hash.is_some() && hash_entry.new_hash.is_some() && &file_hash == hash_entry.old_hash.borrow() && &file_hash != hash_entry.new_hash.borrow() && hash_entry.has_delta {
         //download patch file
         let key = format!("{}_from_{}", hash_entry.new_hash.borrow(), hash_entry.old_hash.borrow());
