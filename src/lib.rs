@@ -25,7 +25,7 @@ use sha2::{Sha256, Digest};
 
 pub struct Progress {
   pub download_size: (u64,u64), //Downloaded .. out of .. bytes
-  patch_files: (u64, u64), //Patched .. out of .. files
+  pub patch_files: (u64, u64), //Patched .. out of .. files
   pub finished_hash: bool,
   pub finished_patching: bool,
 }
@@ -383,7 +383,7 @@ impl Downloader {
  * Iterates over the hash_queue and downloads the files
  */
   fn download_files(&self) {
-    let mut dir_path = format!("{}patcher/", self.renegadex_location.borrow());
+    let dir_path = format!("{}patcher/", self.renegadex_location.borrow());
     DirBuilder::new().recursive(true).create(dir_path).unwrap();
     let download_hashmap = self.download_hashmap.lock().unwrap();
     download_hashmap.par_iter().for_each(|(key, download_entry)| {
@@ -542,20 +542,16 @@ impl Downloader {
   pub fn poll_progress(&self) {
     let state = self.state.clone();
     std::thread::spawn(move || {
-      let mut finished_hash = false;
+      let mut finished_hash : bool;
       let mut finished_patching = false;
-      let start_time = std::time::Instant::now();
       let mut old_time = std::time::Instant::now();
       let mut old_download_size : (u64, u64) = (0, 0);
       while !finished_patching {
         std::thread::sleep(std::time::Duration::from_millis(500));
-        let mut download_size : (u64, u64) = (0, 0);
-        {
-          let state = state.lock().unwrap();
-          finished_hash = state.finished_hash.clone();
-          finished_patching = state.finished_patching.clone();
-          download_size = state.download_size.clone();
-        }
+        let state = state.lock().unwrap();
+        finished_hash = state.finished_hash.clone();
+        finished_patching = state.finished_patching.clone();
+        let download_size : (u64, u64) = state.download_size.clone();
         if old_download_size != download_size {
           let elapsed = old_time.elapsed();
           old_time = std::time::Instant::now();
@@ -568,6 +564,10 @@ impl Downloader {
         }
       }
     });
+  }
+
+  pub fn get_progress(&self) -> Arc<Mutex<Progress>> {
+    self.state.clone()
   }
 }
 
