@@ -71,6 +71,7 @@ pub struct DownloadEntry {
 
 pub struct Downloader {
   renegadex_location: Option<String>, //Os dependant
+  version_url: Option<String>,
   mirrors: Mirrors,
   instructions: Vec<Instruction>, //instructions.json
   pub state: Arc<Mutex<Progress>>,
@@ -83,6 +84,7 @@ impl Downloader {
   pub fn new() -> Downloader {
     Downloader {
       renegadex_location: None,
+      version_url: None,
       mirrors: Mirrors::new(),
       instructions: Vec::new(),
       state: Arc::new(Mutex::new(Progress::new())),
@@ -94,8 +96,16 @@ impl Downloader {
     self.renegadex_location = Some(format!("{}/", loc).replace("\\","/").replace("//","/"));
   }
   
-  pub fn retrieve_mirrors(&mut self, location: &String) {
-    self.mirrors.get_mirrors(location);
+  pub fn set_version_url(&mut self, url: String) {
+    self.version_url = Some(url);
+  }
+
+  pub fn retrieve_mirrors(&mut self) {
+    if self.version_url.is_none() {
+      panic!("Version URL was not set before calling retrieve_mirrors");
+    } else {
+      self.mirrors.get_mirrors(self.version_url.borrow());
+    }
   }
 
   pub fn update_available(&self) -> bool {
