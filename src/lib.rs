@@ -448,27 +448,34 @@ impl Downloader {
     let state = self.state.clone();
     let patch_queue_unlocked = self.patch_queue.clone();
     let renegadex_location = self.renegadex_location.clone();
+    let num_threads = num_cpus::get()-1;
     std::thread::spawn(move || {
-      let pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get()-1).build().unwrap();
+      let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
       pool.install(|| {
-        let mut patch_files = state.lock().unwrap().patch_files.clone();
-        while patch_files.0 != patch_files.1 {
-          // Check for entry in patch_queue, get one, remove it, free the mutex, process entry.
-          let patch_entries : Option<Vec<PatchEntry>>;
-          {
-            let mut patch_queue = patch_queue_unlocked.lock().unwrap();
-            patch_entries = patch_queue.pop();
-          }
-          if patch_entries.is_some() {
-            patch_entries.borrow().par_iter().for_each(|patch_entry| {
-              apply_patch(patch_entry, state.clone()).unwrap();
+        rayon::scope(|s| {
+          for _i in 0..num_threads {
+            s.spawn(|_| {
+              let mut patch_files = state.lock().unwrap().patch_files.clone();
+              while patch_files.0 != patch_files.1 {
+                // Check for entry in patch_queue, get one, remove it, free the mutex, process entry.
+                let patch_entries : Option<Vec<PatchEntry>>;
+                {
+                  let mut patch_queue = patch_queue_unlocked.lock().unwrap();
+                  patch_entries = patch_queue.pop();
+                }
+                if patch_entries.is_some() {
+                  patch_entries.borrow().par_iter().for_each(|patch_entry| {
+                    apply_patch(patch_entry, state.clone()).unwrap();
+                  });
+                  std::fs::remove_file(patch_entries.borrow().first().unwrap().delta_path.clone()).unwrap();
+                  patch_files = state.lock().unwrap().patch_files.clone();
+                } else {
+                  std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+              }
             });
-            std::fs::remove_file(patch_entries.borrow().first().unwrap().delta_path.clone()).unwrap();
-            patch_files = state.lock().unwrap().patch_files.clone();
-          } else {
-            std::thread::sleep(std::time::Duration::from_millis(20));
           }
-        }
+        });
         {
           let mut state = state.lock().unwrap();
           state.finished_patching = true;
