@@ -60,7 +60,7 @@ struct Instruction {
   has_delta: bool
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct PatchEntry {
   target_path: String,
   delta_path: String,
@@ -84,6 +84,7 @@ pub struct Downloader {
   pub state: Arc<Mutex<Progress>>,
   download_hashmap: Mutex<HashMap<String, DownloadEntry>>,
   hash_queue: Mutex<Vec<Instruction>>,
+  patch_queue: Arc<Mutex<Vec<Vec<PatchEntry>>>>
 }
 
 
@@ -97,6 +98,7 @@ impl Downloader {
       state: Arc::new(Mutex::new(Progress::new())),
       download_hashmap: Mutex::new(HashMap::new()),
       hash_queue: Mutex::new(Vec::new()),
+      patch_queue: Arc::new(Mutex::new(Vec::new())),
     }
   }
   pub fn set_location(&mut self, loc: String) {
@@ -161,6 +163,7 @@ impl Downloader {
     }
     println!("Retrieved instructions, checking hashes.");
     self.check_hashes();
+    self.check_patch_queue();
     self.download_files()?;
     return Ok(());
   }
@@ -276,6 +279,8 @@ impl Downloader {
               has_source: false,
               target_hash: key.clone(),
             };
+            let mut state = self.state.lock().unwrap();
+            state.patch_files.1 += 1;
             download_hashmap.get_mut(&key).unwrap().patch_entries.push(patch_entry); //should we add it to a downloadQueue??
           }
         }
@@ -306,7 +311,7 @@ impl Downloader {
       let file_path_source = format!("{}.vcdiff_src", &hash_entry.path);
       let file_hash = match OpenOptions::new().read(true).open(&file_path_source) {
         Ok(_file) => {
-          if hash_entry.old_hash.is_some() && &self.get_hash(&file_path_source) == hash_entry.old_hash.borrow() {
+          if hash_entry.old_hash.is_some() && &get_hash(&file_path_source) == hash_entry.old_hash.borrow() {
             match std::fs::remove_file(&hash_entry.path) {
               Ok(()) => {},
               Err(_e) => {
@@ -324,10 +329,10 @@ impl Downloader {
               }
             }
           }
-          self.get_hash(&hash_entry.path)
+          get_hash(&hash_entry.path)
         },
         Err(_e) => {
-          self.get_hash(&hash_entry.path)
+          get_hash(&hash_entry.path)
         },
       };
       if hash_entry.old_hash.is_some() && hash_entry.new_hash.is_some() && &file_hash == hash_entry.old_hash.borrow() && &file_hash != hash_entry.new_hash.borrow() && hash_entry.has_delta {
@@ -358,6 +363,8 @@ impl Downloader {
           has_source: true,
           target_hash: hash_entry.new_hash.clone().unwrap(),
         };
+        let mut state = self.state.lock().unwrap();
+        state.patch_files.1 += 1;
         download_hashmap.get_mut(&key).unwrap().patch_entries.push(patch_entry);
       } else if hash_entry.new_hash.is_some() && &file_hash == hash_entry.new_hash.borrow() {
         //this file is up to date
@@ -391,6 +398,8 @@ impl Downloader {
           has_source: false,
           target_hash: hash_entry.new_hash.clone().unwrap(),
         };
+        let mut state = self.state.lock().unwrap();
+        state.patch_files.1 += 1;
         download_hashmap.get_mut(key).unwrap().patch_entries.push(patch_entry);
       }
     });
@@ -405,41 +414,64 @@ impl Downloader {
     let dir_path = format!("{}patcher/", self.renegadex_location.borrow());
     DirBuilder::new().recursive(true).create(dir_path).unwrap();
     let download_hashmap = self.download_hashmap.lock().unwrap();
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(20).build().unwrap();
-    pool.install(
-      || download_hashmap.par_iter().try_for_each(
-        |(key, download_entry)| self.download_and_patch(key, download_entry)
-      )
+    download_hashmap.par_iter().try_for_each(
+      |(key, download_entry)| self.download_and_patch(key, download_entry)
     )?;
-    {
-      let mut state = self.state.lock().unwrap();
-      state.finished_patching = true;
-    }
-    //remove patcher folder and all remaining files in there:
-    std::fs::remove_dir_all(format!("{}patcher/", &self.renegadex_location.borrow())).unwrap();
     return Ok(());
   }
 
   fn download_and_patch(&self, key: &String, download_entry: &DownloadEntry) -> Result<(), Error> {
-      for attempt in 0..5 {
-        //TODO add in a random number generator in order to balance the load between the mirrors
-        let download_url = match download_entry.patch_entries[0].has_source {
-          true => format!("{}/delta/{}", self.mirrors.mirrors[attempt].address, &key),
-          false => format!("{}/full/{}", self.mirrors.mirrors[attempt].address, &key)
-        };
-        
-        match self.download_file(&download_url, download_entry, if attempt == 0 { true } else { false }) {
-          Ok(()) => break,
-          Err(e) => {
-            if attempt == 4 { return Err(format!("Couldn't download file: {}", &key).into()) }
-            else { println!("Downloading file from {} failed due to error: {}", download_url, e); }
-          },
-        };
+    for attempt in 0..5 {
+      //TODO add in a random number generator in order to balance the load between the mirrors
+      let download_url = match download_entry.patch_entries[0].has_source {
+        true => format!("{}/delta/{}", self.mirrors.mirrors[attempt].address, &key),
+        false => format!("{}/full/{}", self.mirrors.mirrors[attempt].address, &key)
+      };
+      match self.download_file(&download_url, download_entry, if attempt == 0 { true } else { false }) {
+        Ok(()) => break,
+        Err(e) => {
+          if attempt == 4 { return Err(format!("Couldn't download file: {}", &key).into()) }
+          else { println!("Downloading file from {} failed due to error: {}", download_url, e); }
+        },
+      };
+    }
+    //apply delta
+    let mut patch_queue = self.patch_queue.lock().unwrap();
+    patch_queue.push(download_entry.patch_entries.clone());
+    return Ok(())
+  }
+
+  fn check_patch_queue(&self) {
+    let state = self.state.clone();
+    let patch_queue_unlocked = self.patch_queue.clone();
+    let renegadex_location = self.renegadex_location.clone();
+    std::thread::spawn(move || {
+      let mut patch_files = state.lock().unwrap().patch_files.clone();
+      while patch_files.0 != patch_files.1 {
+        // Check for entry in patch_queue, get one, remove it, free the mutex, process entry.
+        let patch_entries : Option<Vec<PatchEntry>>;
+        {
+          let mut patch_queue = patch_queue_unlocked.lock().unwrap();
+          patch_entries = patch_queue.pop();
+        }
+        if patch_entries.is_some() {
+          for patch_entry in patch_entries.borrow() {
+            apply_patch(&patch_entry, state.clone()).unwrap();
+          }
+          std::fs::remove_file(patch_entries.unwrap().first().unwrap().delta_path.clone()).unwrap();
+          patch_files = state.lock().unwrap().patch_files.clone();
+        } else {
+          std::thread::sleep(std::time::Duration::from_millis(20));
+        }
       }
-      //apply delta
-      download_entry.patch_entries.par_iter().try_for_each(|patch_entry| self.apply_patch(patch_entry))?;
-      std::fs::remove_file(&download_entry.file_path).unwrap();
-      return Ok(())
+      {
+        let mut state = state.lock().unwrap();
+        state.finished_patching = true;
+      }
+      //remove patcher folder and all remaining files in there:
+      std::fs::remove_dir_all(format!("{}patcher/", renegadex_location.unwrap())).unwrap();
+    });
+
   }
 
 
@@ -461,7 +493,7 @@ impl Downloader {
       if f.metadata().unwrap().len() == (download_entry.file_size as u64) {
         //If hash is correct, return.
         //Otherwise download again.
-        let hash = self.get_hash(&download_entry.file_path);
+        let hash = get_hash(&download_entry.file_path);
         if &hash == &download_entry.file_hash {
           let mut state = self.state.lock().unwrap();
           state.download_size.0 += (download_entry.file_size) as u64;
@@ -510,54 +542,11 @@ impl Downloader {
     f.set_len(download_entry.file_size as u64).unwrap();
     
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
-    let hash = self.get_hash(&download_entry.file_path);
+    let hash = get_hash(&download_entry.file_path);
     if &hash != &download_entry.file_hash {
       return Err(format!("File \"{}\"'s hash ({}) did not match with the one provided in Instructions.json ({})", &download_entry.file_path, &hash, &download_entry.file_hash).into());
     }
     return Ok(());
-  }
-
-
-/*
- * Applies the vcdiff patch file to the target file.
- * 
- * -------------- par --------------------------------------------------
- * | DeltaQueue | --> | apply patch to all files that match this Delta |
- * --------------     --------------------------------------------------
- */
-  fn apply_patch(&self, patch_entry: &PatchEntry) -> Result<(), Error> {
-    let mut dir_path = patch_entry.target_path.clone();
-    dir_path.truncate(patch_entry.target_path.rfind('/').unwrap());
-    DirBuilder::new().recursive(true).create(dir_path).unwrap();
-    if patch_entry.has_source {
-      let source_path = format!("{}.vcdiff_src", &patch_entry.target_path);
-      std::fs::rename(&patch_entry.target_path, &source_path).unwrap();
-      xdelta::decode_file(Some(&source_path), &patch_entry.delta_path, &patch_entry.target_path);
-      std::fs::remove_file(&source_path).unwrap();
-    } else {
-      //there is supposed to be no source file, so make sure it doesn't exist either!
-      match std::fs::remove_file(&patch_entry.target_path) {
-        Ok(()) => (),
-        Err(_e) => ()
-      };
-      xdelta::decode_file(None, &patch_entry.delta_path, &patch_entry.target_path);
-    }
-    let hash = self.get_hash(&patch_entry.target_path);
-    if &hash != &patch_entry.target_hash {
-      return Err(format!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash).into());
-    }
-    return Ok(());
-  }
-
-
-/*
- * Opens a file and calculates it's SHA256 hash
- */
-  fn get_hash(&self, file_path: &String) -> String {
-    let mut file = OpenOptions::new().read(true).open(file_path).unwrap();
-    let mut sha256 = Sha256::new();
-    std::io::copy(&mut file, &mut sha256).unwrap();
-    hex::encode_upper(sha256.result())
   }
   
 /*
@@ -576,16 +565,18 @@ impl Downloader {
         finished_hash = state.finished_hash.clone();
         finished_patching = state.finished_patching.clone();
         let download_size : (u64, u64) = state.download_size.clone();
-        if old_download_size != download_size {
-          let elapsed = old_time.elapsed();
-          old_time = std::time::Instant::now();
-          if !finished_hash {
+        let patch_files : (u64, u64) = state.patch_files.clone();
+        let elapsed = old_time.elapsed();
+        old_time = std::time::Instant::now();
+        if !finished_hash {
+          if old_download_size != download_size {
             println!("Comparing files, total to be downloaded: {:.1} MB", (download_size.1 as f64)*0.000001);
-          } else {
-            println!("Downloaded {:.1}/{:.1} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000001, (download_size.1 as f64)*0.000001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
           }
-          old_download_size = download_size;
+        } else {
+          println!("Downloaded {:.1}/{:.1} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000001, (download_size.1 as f64)*0.000001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
+          println!("Patched {}/{} files", patch_files.0, patch_files.1);
         }
+        old_download_size = download_size;
       }
     });
   }
@@ -594,6 +585,50 @@ impl Downloader {
     self.state.clone()
   }
 }
+
+/*
+ * Applies the vcdiff patch file to the target file.
+ * 
+ * -------------- par --------------------------------------------------
+ * | DeltaQueue | --> | apply patch to all files that match this Delta |
+ * --------------     --------------------------------------------------
+ */
+  fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<(), Error> {
+    let mut dir_path = patch_entry.target_path.clone();
+    dir_path.truncate(patch_entry.target_path.rfind('/').unwrap());
+    DirBuilder::new().recursive(true).create(dir_path).unwrap();
+    if patch_entry.has_source {
+      let source_path = format!("{}.vcdiff_src", &patch_entry.target_path);
+      std::fs::rename(&patch_entry.target_path, &source_path).unwrap();
+      xdelta::decode_file(Some(&source_path), &patch_entry.delta_path, &patch_entry.target_path);
+      std::fs::remove_file(&source_path).unwrap();
+    } else {
+      //there is supposed to be no source file, so make sure it doesn't exist either!
+      match std::fs::remove_file(&patch_entry.target_path) {
+        Ok(()) => (),
+        Err(_e) => ()
+      };
+      xdelta::decode_file(None, &patch_entry.delta_path, &patch_entry.target_path);
+    }
+    let hash = get_hash(&patch_entry.target_path);
+    if &hash != &patch_entry.target_hash {
+      return Err(format!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash).into());
+    }
+    let mut state = state.lock().unwrap();
+    state.patch_files.0 += 1;
+    return Ok(());
+  }
+
+
+/*
+ * Opens a file and calculates it's SHA256 hash
+ */
+  fn get_hash(file_path: &String) -> String {
+    let mut file = OpenOptions::new().read(true).open(file_path).unwrap();
+    let mut sha256 = Sha256::new();
+    std::io::copy(&mut file, &mut sha256).unwrap();
+    hex::encode_upper(sha256.result())
+  }
 
 #[cfg(test)]
 mod tests {
