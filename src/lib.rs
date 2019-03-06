@@ -471,6 +471,7 @@ impl Downloader {
                   patch_files = state.lock().unwrap().patch_files.clone();
                 } else {
                   std::thread::sleep(std::time::Duration::from_millis(20));
+                  patch_files = state.lock().unwrap().patch_files.clone();
                 }
               }
             });
