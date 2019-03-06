@@ -16,7 +16,7 @@ use std::panic;
 mod mirrors;
 mod traits;
 use mirrors::Mirrors;
-use traits::{AsString, BorrowUnwrap};
+use traits::{AsString, BorrowUnwrap, Error};
 
 //External crates
 use rayon::prelude::*;
@@ -28,6 +28,13 @@ pub struct Progress {
   pub patch_files: (u64, u64), //Patched .. out of .. files
   pub finished_hash: bool,
   pub finished_patching: bool,
+}
+
+pub enum Update {
+  UpToDate,
+  Resume,
+  Full,
+  Delta,
 }
 
 impl Progress {
@@ -100,26 +107,26 @@ impl Downloader {
     self.version_url = Some(url);
   }
 
-  pub fn retrieve_mirrors(&mut self) {
+  pub fn retrieve_mirrors(&mut self) -> Result<(), Error> {
     if self.version_url.is_none() {
-      panic!("Version URL was not set before calling retrieve_mirrors");
+      return Err(format!("Version URL was not set before calling retrieve_mirrors").into());
     } else {
-      self.mirrors.get_mirrors(self.version_url.borrow());
+      return self.mirrors.get_mirrors(self.version_url.borrow());
     }
   }
 
-  pub fn update_available(&self) -> bool {
+  pub fn update_available(&self) -> Result<Update, String> {
     if self.mirrors.is_empty() {
-      panic!("No mirrors found, aborting! Did you retrieve mirrors?");
+      return Err(format!("No mirrors found, aborting! Did you retrieve mirrors?"));
     }
     if self.renegadex_location.is_none() {
-      panic!("The RenegadeX location hasn't been set, aborting!");
+      return Err(format!("The RenegadeX location hasn't been set, aborting!"));
     }
     let patch_dir_path = format!("{}/patcher/", self.renegadex_location.borrow()).replace("//", "/");
     match std::fs::read_dir(patch_dir_path) {
       Ok(iter) => {
         if iter.count() != 0 {
-          return true
+          return Ok(Update::Resume);
         }
       },
       Err(_e) => {}
@@ -128,32 +135,34 @@ impl Downloader {
     let path = format!("{}UDKGame/Config/DefaultRenegadeX.ini", self.renegadex_location.borrow());
     let conf = match Ini::load_from_file(&path) {
       Ok(file) => file,
-      Err(_e) => { return true }
+      Err(_e) => { 
+        return Ok(Update::Full);
+      }
     };
 
     let section = conf.section(Some("RenX_Game.Rx_Game".to_owned())).unwrap();
     let game_version_number = section.get("GameVersionNumber").unwrap();
 
     if self.mirrors.version_number.borrow() != game_version_number {
-      return true;
+      return Ok(Update::Delta);
     }
-    return false;
+    return Ok(Update::UpToDate);
   }
 
-  pub fn download(&mut self) {
+  pub fn download(&mut self) -> Result<(), Error> {
     if self.mirrors.is_empty() {
-      panic!("No mirrors found! Did you retrieve mirrors?");
+      return Err(format!("No mirrors found! Did you retrieve mirrors?").into());
     }
     if self.instructions.len() == 0 {
-      self.retrieve_instructions();
+      self.retrieve_instructions()?;
+    }
+    if self.mirrors.mirrors.len() < 3 {
+      return Err(format!("Not enough mirrors ({} out of 3) available!", self.mirrors.mirrors.len()).into());
     }
     println!("Retrieved instructions, checking hashes.");
     self.check_hashes();
-    self.download_files();
-    {
-      let state = self.state.lock().unwrap();
-      println!("{:#?}", &state.download_size);
-    }
+    self.download_files()?;
+    return Ok(());
   }
   
   /*
@@ -162,29 +171,27 @@ impl Downloader {
    * | retrieve_instructions |  --> | Get Json | ---->  | process_instructions | 
    * -------------------------      ------------        ------------------------
   */
-  fn retrieve_instructions(&mut self) {
+  fn retrieve_instructions(&mut self) -> Result<(), Error> {
     if self.mirrors.is_empty() {
-      panic!("No mirrors found! Did you retrieve mirrors?");
+      return Err(format!("No mirrors found! Did you retrieve mirrors?").into());
     }
     let instructions_mutex : Mutex<String> = Mutex::new("".to_string());
     for retry in 0..3 {
-      let result = std::panic::catch_unwind(|| {
+      let result : Result<(),Error> = {
         let instructions_url = format!("{}/instructions.json", &self.mirrors.mirrors[retry].address);
         println!("{}", &instructions_url);
-        let mut instructions_response = match reqwest::get(&instructions_url) {
-          Ok(result) => result,
-          Err(e) => panic!("Is your internet down? {}", e)
-        };
-        let text = instructions_response.text().unwrap();
+        let text = reqwest::get(&instructions_url)?.text().unwrap();
         // check instructions hash
         let mut sha256 = Sha256::new();
         sha256.input(&text);
         let hash = hex::encode_upper(sha256.result());
         if &hash != self.mirrors.instructions_hash.borrow() {
-          panic!("Hashes did not match!");
+          Err(format!("Hash of instructions.json ({}) did not match the one specified in release.json ({})!", &hash, self.mirrors.instructions_hash.borrow()).into())
+        } else {
+          *instructions_mutex.lock().unwrap() = text;
+          Ok(())
         }
-        *instructions_mutex.lock().unwrap() = text;
-      });
+      };
       if result.is_ok() {
         for _i in 0..retry {
           println!("Removing mirror: {:#?}", &self.mirrors.mirrors[0]);
@@ -192,15 +199,17 @@ impl Downloader {
         }
         break;
       } else if result.is_err() && retry == 2 {
-        panic!("Couldn't fetch instructions.json");
+        //TODO: This is bound to one day go wrong
+        return Err(format!("Couldn't fetch instructions.json").into());
       }
     }
     let instructions_text : String = instructions_mutex.into_inner().unwrap();
     let instructions_data = match json::parse(&instructions_text) {
       Ok(result) => result,
-      Err(e) => panic!("Invalid JSON: {}", e)
+      Err(e) => return Err(format!("Invalid JSON: {}", e).into())
     };
     self.process_instructions(instructions_data);
+    return Ok(());
   }
 
   /*
@@ -390,54 +399,59 @@ impl Downloader {
 
 
 /*
- * Iterates over the hash_queue and downloads the files
+ * Iterates over the hash_queue and calls download_and_patch for each.
  */
-  fn download_files(&self) {
+  fn download_files(&self) -> Result<(), Error> {
     let dir_path = format!("{}patcher/", self.renegadex_location.borrow());
     DirBuilder::new().recursive(true).create(dir_path).unwrap();
     let download_hashmap = self.download_hashmap.lock().unwrap();
-    download_hashmap.par_iter().for_each(|(key, download_entry)| {
-      for attempt in 0..5 {
-        let download_url = match download_entry.patch_entries[0].has_source {
-          true => format!("{}/delta/{}", self.mirrors.mirrors[attempt].address, &key),
-          false => format!("{}/full/{}", self.mirrors.mirrors[attempt].address, &key)
-        };
-        
-        match self.download_file(download_url, download_entry) {
-          Ok(()) => break,
-          Err(_e) => {
-            if attempt == 4 { panic!("Couldn't download file: {}", &key) }
-          },
-        };
-      }
-      //apply delta
-      download_entry.patch_entries.par_iter().for_each(|patch_entry| {
-        self.apply_patch(patch_entry);
-      });
-      std::fs::remove_file(&download_entry.file_path).unwrap();
-    });
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(20).build().unwrap();
+    pool.install(
+      || download_hashmap.par_iter().try_for_each(
+        |(key, download_entry)| self.download_and_patch(key, download_entry)
+      )
+    )?;
     {
       let mut state = self.state.lock().unwrap();
       state.finished_patching = true;
     }
     //remove patcher folder and all remaining files in there:
     std::fs::remove_dir_all(format!("{}patcher/", &self.renegadex_location.borrow())).unwrap();
+    return Ok(());
+  }
+
+  fn download_and_patch(&self, key: &String, download_entry: &DownloadEntry) -> Result<(), Error> {
+      for attempt in 0..5 {
+        //TODO add in a random number generator in order to balance the load between the mirrors
+        let download_url = match download_entry.patch_entries[0].has_source {
+          true => format!("{}/delta/{}", self.mirrors.mirrors[attempt].address, &key),
+          false => format!("{}/full/{}", self.mirrors.mirrors[attempt].address, &key)
+        };
+        
+        match self.download_file(&download_url, download_entry, if attempt == 0 { true } else { false }) {
+          Ok(()) => break,
+          Err(e) => {
+            if attempt == 4 { return Err(format!("Couldn't download file: {}", &key).into()) }
+            else { println!("Downloading file from {} failed due to error: {}", download_url, e); }
+          },
+        };
+      }
+      //apply delta
+      download_entry.patch_entries.par_iter().try_for_each(|patch_entry| self.apply_patch(patch_entry))?;
+      std::fs::remove_file(&download_entry.file_path).unwrap();
+      return Ok(())
   }
 
 
 /*
  * Iterates over the hash_queue and downloads the files
  */
-  fn download_file(&self, download_url: String, download_entry: &DownloadEntry) -> Result<(), &'static str> {
-    //println!("{}", download_url);
-    //println!("{:#?}", &download_entry);
-
+  fn download_file(&self, download_url: &String, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
     let part_size = 10u64.pow(6) as usize; //1.000.000
     let mut f = match OpenOptions::new().read(true).write(true).create(true).open(&download_entry.file_path) {
       Ok(file) => file,
       Err(e) => {
-        println!("Couldn't open file \"{}\": {:?}", &download_entry.file_path, e);
-        return Err("Couldn't open delta_file in fn download_file()");
+        return Err(format!("Couldn't open delta_file \"{}\": {:?}", &download_entry.file_path, e).into());
       }
     };
     //set the size of the file, add a 32bit integer to the end of the file as a means of tracking progress. We won't download parts async.
@@ -457,8 +471,7 @@ impl Downloader {
       match f.set_len(file_size as u64) {
         Ok(()) => {},
         Err(e) => {
-          println!("Couldn't set file size! {}", e);
-          return Err("Could not change file size of patch file, is it in use?");
+          return Err(format!("Could not change file size of patch file, is it in use?\n{}",e).into());
         }
       }
     }
@@ -469,8 +482,10 @@ impl Downloader {
     let resume_part : usize = u32::from_be_bytes(buf) as usize;
     if resume_part != 0 { 
       println!("Resuming download \"{}\" from part {} out of {}", &download_entry.file_hash, resume_part, parts_amount);
-      let mut state = self.state.lock().unwrap();
-      state.download_size.0 += (part_size * resume_part) as u64;
+      if first_attempt {
+        let mut state = self.state.lock().unwrap();
+        state.download_size.0 += (part_size * resume_part) as u64;
+      }
     };
     //iterate over all parts, downloading them into memory, writing them into the file, adding one to the counter at the end of the file.
     for part_int in resume_part..parts_amount {
@@ -479,11 +494,11 @@ impl Downloader {
       if bytes_end > download_entry.file_size {
         bytes_end = download_entry.file_size.clone();
       }
-      let download_request = http_client.get(&download_url).header(reqwest::header::RANGE,format!("bytes={}-{}", bytes_start, bytes_end));
+      let download_request = http_client.get(download_url).header(reqwest::header::RANGE,format!("bytes={}-{}", bytes_start, bytes_end));
       let download_response = download_request.send();
       f.seek(SeekFrom::Start(bytes_start as u64)).unwrap();
       let mut content : Vec<u8> = Vec::with_capacity(bytes_end - bytes_start + 1);
-      download_response.unwrap().read_to_end(&mut content).unwrap();
+      download_response?.read_to_end(&mut content).unwrap();
       f.write_all(&content).unwrap();
       //completed downloading and writing this part, so update the progress-tracker at the end of the file
       f.seek(SeekFrom::Start((download_entry.file_size) as u64)).unwrap();
@@ -497,9 +512,7 @@ impl Downloader {
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = self.get_hash(&download_entry.file_path);
     if &hash != &download_entry.file_hash {
-      println!("Hash is incorrect!");
-      println!("{} vs {}", &hash, &download_entry.file_hash);
-      return Err("Downloaded file's hash did not match with the one provided in Instructions.json");
+      return Err(format!("File \"{}\"'s hash ({}) did not match with the one provided in Instructions.json ({})", &download_entry.file_path, &hash, &download_entry.file_hash).into());
     }
     return Ok(());
   }
@@ -512,7 +525,7 @@ impl Downloader {
  * | DeltaQueue | --> | apply patch to all files that match this Delta |
  * --------------     --------------------------------------------------
  */
-  fn apply_patch(&self, patch_entry: &PatchEntry) {
+  fn apply_patch(&self, patch_entry: &PatchEntry) -> Result<(), Error> {
     let mut dir_path = patch_entry.target_path.clone();
     dir_path.truncate(patch_entry.target_path.rfind('/').unwrap());
     DirBuilder::new().recursive(true).create(dir_path).unwrap();
@@ -531,8 +544,9 @@ impl Downloader {
     }
     let hash = self.get_hash(&patch_entry.target_path);
     if &hash != &patch_entry.target_hash {
-      panic!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash);
+      return Err(format!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash).into());
     }
+    return Ok(());
   }
 
 
@@ -588,11 +602,19 @@ mod tests {
   fn downloader() {
     let mut patcher : Downloader = Downloader::new();
     patcher.set_location("/home/sonny/RenegadeX/game_files/".to_string());
-    patcher.retrieve_mirrors(&"https://static.renegade-x.com/launcher_data/version/release.json".to_string());
-    if patcher.update_available() {
-      println!("Update available!");
-      patcher.poll_progress();
-      patcher.download();
+    patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
+    patcher.retrieve_mirrors().unwrap();
+    match patcher.update_available().unwrap() {
+      Update::UpToDate => {
+        println!("Game up to date!");
+        patcher.poll_progress();
+        patcher.download().unwrap();
+      },
+      Update::Resume | Update::Delta | Update::Full => {
+        println!("Update available!");
+        patcher.poll_progress();
+        patcher.download().unwrap();
+      }
     };
     assert!(true);
   }

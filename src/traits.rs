@@ -43,3 +43,44 @@ impl<T> BorrowUnwrap<T> for Option<T> {
     }
   }
 }
+
+#[derive(Debug)]
+pub struct Error {
+  details: String
+}
+
+impl Error {
+    pub const fn new(msg: String) -> Error {
+        Error { details: msg }
+    }
+}
+
+impl std::error::Error for Error {
+  fn description(&self) -> &str {
+    &self.details
+  }
+}
+
+impl std::fmt::Display for Error {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f,"{}", self.details)
+  }
+}
+
+impl From<reqwest::Error> for Error {
+  fn from(error: reqwest::Error) -> Self {
+    use std::error::Error;
+    Self {
+      details: error.description().to_string()
+    }
+  }
+}
+
+impl From<std::string::String> for Error {
+  fn from(string: String) -> Self {
+    Error {
+      details: string
+    }
+  }
+}
+

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 use std::sync::Mutex;
 
-use crate::traits::AsString;
+use crate::traits::{AsString,Error};
 
 use rayon::prelude::*;
 
@@ -42,18 +42,18 @@ impl Mirrors {
   /**
   Downloads release.json from the renegade-x server and adds it to the struct
   */
-  pub fn get_mirrors(&mut self, location: &String) {
+  pub fn get_mirrors(&mut self, location: &String) -> Result<(), Error> {
     let mut release_json = match reqwest::get(location) {
       Ok(result) => result,
-      Err(e) => panic!("Is your internet down? {}", e)
+      Err(e) => return Err(format!("Is your internet down? {}", e).into())
     };
     let release_json_response = match release_json.text() {
       Ok(result) => result,
-      Err(e) => panic!("Corrupted response: {}", e)
+      Err(e) => return Err(format!("Corrupted response: {}", e).into())
     };
     let release_data = match json::parse(&release_json_response) {
       Ok(result) => result,
-      Err(e) => panic!("Invalid JSON: {}", e)
+      Err(e) => return Err(format!("Invalid JSON: {}", e).into())
     };
 
     //stop being a dick, and listen to sarah:
@@ -74,10 +74,10 @@ impl Mirrors {
           let duration = start.elapsed();
           let content_length = result.headers().get("content-length");
           if content_length.is_none() {
-            println!("Error, mirror {} did not return header content-length, instead: {:#?}", &mirror, result.headers());
+            println!("Mirror {} did not return header content-length, instead: {:#?}", &mirror, result.headers());
           } else {
             if content_length.unwrap() != "10000" { 
-              println!("{:?}", result);
+              println!("Mirror {} did not send back the requested content length, instead: {:#?}", &mirror, result);
             } else {
               let mirror_var = Mirror { 
                 address: format!("{}{}", &mirror, &patch_path),
@@ -89,6 +89,7 @@ impl Mirrors {
           }
         },
         Err(_e) => {
+          println!("Mirror {} not added to mirrors due to server-error or connection time-out.", &mirror);
           //this mirror will not be added, error can thus be ignored.
         }
       };
@@ -98,6 +99,7 @@ impl Mirrors {
     self.mirrors = mirror_array;
     self.instructions_hash = Some(release_data["game"]["instructions_hash"].as_string());
     self.version_number = Some(release_data["game"]["version_number"].as_u64().unwrap().to_string());
+    return Ok(());
   }
   
 }
