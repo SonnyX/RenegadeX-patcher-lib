@@ -4,6 +4,7 @@ extern crate json;
 extern crate sha2;
 extern crate ini;
 extern crate hex;
+extern crate num_cpus;
 
 //Standard library
 use std::collections::HashMap;
@@ -448,30 +449,33 @@ impl Downloader {
     let patch_queue_unlocked = self.patch_queue.clone();
     let renegadex_location = self.renegadex_location.clone();
     std::thread::spawn(move || {
-      let mut patch_files = state.lock().unwrap().patch_files.clone();
-      while patch_files.0 != patch_files.1 {
-        // Check for entry in patch_queue, get one, remove it, free the mutex, process entry.
-        let patch_entries : Option<Vec<PatchEntry>>;
-        {
-          let mut patch_queue = patch_queue_unlocked.lock().unwrap();
-          patch_entries = patch_queue.pop();
-        }
-        if patch_entries.is_some() {
-          for patch_entry in patch_entries.borrow() {
-            apply_patch(&patch_entry, state.clone()).unwrap();
+      let pool = rayon::ThreadPoolBuilder::new().num_threads(num_cpus::get()-1).build().unwrap();
+      pool.install(|| {
+        let mut patch_files = state.lock().unwrap().patch_files.clone();
+        while patch_files.0 != patch_files.1 {
+          // Check for entry in patch_queue, get one, remove it, free the mutex, process entry.
+          let patch_entries : Option<Vec<PatchEntry>>;
+          {
+            let mut patch_queue = patch_queue_unlocked.lock().unwrap();
+            patch_entries = patch_queue.pop();
           }
-          std::fs::remove_file(patch_entries.unwrap().first().unwrap().delta_path.clone()).unwrap();
-          patch_files = state.lock().unwrap().patch_files.clone();
-        } else {
-          std::thread::sleep(std::time::Duration::from_millis(20));
+          if patch_entries.is_some() {
+            patch_entries.borrow().par_iter().for_each(|patch_entry| {
+              apply_patch(patch_entry, state.clone()).unwrap();
+            });
+            std::fs::remove_file(patch_entries.borrow().first().unwrap().delta_path.clone()).unwrap();
+            patch_files = state.lock().unwrap().patch_files.clone();
+          } else {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+          }
         }
-      }
-      {
-        let mut state = state.lock().unwrap();
-        state.finished_patching = true;
-      }
-      //remove patcher folder and all remaining files in there:
-      std::fs::remove_dir_all(format!("{}patcher/", renegadex_location.unwrap())).unwrap();
+        {
+          let mut state = state.lock().unwrap();
+          state.finished_patching = true;
+        }
+        //remove patcher folder and all remaining files in there:
+        std::fs::remove_dir_all(format!("{}patcher/", renegadex_location.unwrap())).unwrap();
+      });
     })
   }
 
@@ -560,6 +564,7 @@ impl Downloader {
       let mut finished_patching = false;
       let mut old_time = std::time::Instant::now();
       let mut old_download_size : (u64, u64) = (0, 0);
+      let mut old_patch_files : (u64, u64) = (0, 0);
       while !finished_patching {
         std::thread::sleep(std::time::Duration::from_millis(500));
         let state = state.lock().unwrap();
@@ -574,10 +579,15 @@ impl Downloader {
             println!("Comparing files, total to be downloaded: {:.1} MB", (download_size.1 as f64)*0.000001);
           }
         } else {
-          println!("Downloaded {:.1}/{:.1} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000001, (download_size.1 as f64)*0.000001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
-          println!("Patched {}/{} files", patch_files.0, patch_files.1);
+          if old_download_size != download_size {
+            println!("Downloaded {:.1}/{:.1} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000001, (download_size.1 as f64)*0.000001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
+          }
+          if patch_files != old_patch_files {
+            println!("Patched {}/{} files", patch_files.0, patch_files.1);
+          }
         }
         old_download_size = download_size;
+        old_patch_files = patch_files;
       }
     });
   }
