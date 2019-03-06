@@ -163,8 +163,10 @@ impl Downloader {
     }
     println!("Retrieved instructions, checking hashes.");
     self.check_hashes();
-    self.check_patch_queue();
+    let child_process = self.check_patch_queue();
     self.download_files()?;
+    child_process.join().unwrap();
+    //need to wait somehow for patch_queue to finish.
     return Ok(());
   }
   
@@ -441,7 +443,7 @@ impl Downloader {
     return Ok(())
   }
 
-  fn check_patch_queue(&self) {
+  fn check_patch_queue(&self) -> std::thread::JoinHandle<()> {
     let state = self.state.clone();
     let patch_queue_unlocked = self.patch_queue.clone();
     let renegadex_location = self.renegadex_location.clone();
@@ -470,8 +472,7 @@ impl Downloader {
       }
       //remove patcher folder and all remaining files in there:
       std::fs::remove_dir_all(format!("{}patcher/", renegadex_location.unwrap())).unwrap();
-    });
-
+    })
   }
 
 
