@@ -24,6 +24,7 @@ use rayon::prelude::*;
 use ini::Ini;
 use sha2::{Sha256, Digest};
 
+#[derive(Clone)]
 pub struct Progress {
   pub hashes_checked: (u64, u64),
   pub download_size: (u64,u64), //Downloaded .. out of .. bytes
