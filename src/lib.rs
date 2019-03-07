@@ -15,7 +15,7 @@ use std::panic;
 
 //Modules
 mod mirrors;
-mod traits;
+pub mod traits;
 use mirrors::Mirrors;
 use traits::{AsString, BorrowUnwrap, Error};
 
