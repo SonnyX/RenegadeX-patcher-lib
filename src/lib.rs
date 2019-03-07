@@ -25,6 +25,7 @@ use ini::Ini;
 use sha2::{Sha256, Digest};
 
 pub struct Progress {
+  pub hashes_checked: (u64, u64),
   pub download_size: (u64,u64), //Downloaded .. out of .. bytes
   pub patch_files: (u64, u64), //Patched .. out of .. files
   pub finished_hash: bool,
@@ -41,6 +42,7 @@ pub enum Update {
 impl Progress {
   fn new() -> Progress {
     Progress {
+      hashes_checked: (0,0),
       download_size: (0,0),
       patch_files: (0,0),
       finished_hash: false,
@@ -255,6 +257,8 @@ impl Downloader {
               has_delta:           instruction["HasDelta"].as_bool().unwrap()
             };
             hash_queue.push(hash_entry);
+            let mut state = self.state.lock().unwrap();
+            state.hashes_checked.1 += 1;
           } else {
             
             //TODO: DeletionQueue, delete it straight away?
@@ -405,13 +409,15 @@ impl Downloader {
         state.patch_files.1 += 1;
         download_hashmap.get_mut(key).unwrap().patch_entries.push(patch_entry);
       }
+      let mut state = self.state.lock().unwrap();
+      state.hashes_checked.0 += 1;
     });
     self.state.lock().unwrap().finished_hash = true;
   }
 
 
 /*
- * Iterates over the hash_queue and calls download_and_patch for each.
+ * Iterates over the download_hashmap and calls download_and_patch for each DownloadEntry.
  */
   fn download_files(&self) -> Result<(), Error> {
     let dir_path = format!("{}patcher/", self.renegadex_location.borrow());
@@ -489,7 +495,7 @@ impl Downloader {
 
 
 /*
- * Iterates over the hash_queue and downloads the files
+ * Downloads the file in parts
  */
   fn download_file(&self, download_url: &String, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
     let part_size = 10u64.pow(6) as usize; //1.000.000
@@ -563,7 +569,7 @@ impl Downloader {
   }
   
 /*
- * Spawns magical unicorns
+ * Spawns magical unicorns, only usefull for testing
  */
   pub fn poll_progress(&self) {
     let state = self.state.clone();
@@ -573,6 +579,7 @@ impl Downloader {
       let mut old_time = std::time::Instant::now();
       let mut old_download_size : (u64, u64) = (0, 0);
       let mut old_patch_files : (u64, u64) = (0, 0);
+      let mut old_hashes_checked : (u64, u64) = (0, 0);
       while !finished_patching {
         std::thread::sleep(std::time::Duration::from_millis(500));
         let state = state.lock().unwrap();
@@ -580,11 +587,15 @@ impl Downloader {
         finished_patching = state.finished_patching.clone();
         let download_size : (u64, u64) = state.download_size.clone();
         let patch_files : (u64, u64) = state.patch_files.clone();
+        let hashes_checked : (u64, u64) = state.hashes_checked.clone();
         let elapsed = old_time.elapsed();
         old_time = std::time::Instant::now();
         if !finished_hash {
           if old_download_size != download_size {
             println!("Comparing files, total to be downloaded: {:.1} MB", (download_size.1 as f64)*0.000001);
+          }
+          if old_hashes_checked != hashes_checked {
+            println!("Checked {} out of {} hashes.", hashes_checked.0, hashes_checked.1);
           }
         } else {
           if old_download_size != download_size {
@@ -596,6 +607,7 @@ impl Downloader {
         }
         old_download_size = download_size;
         old_patch_files = patch_files;
+        old_hashes_checked = hashes_checked;
       }
     });
   }
