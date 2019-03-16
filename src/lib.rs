@@ -26,6 +26,7 @@ use sha2::{Sha256, Digest};
 
 #[derive(Clone)]
 pub struct Progress {
+  pub update: Update,
   pub hashes_checked: (u64, u64),
   pub download_size: (u64,u64), //Downloaded .. out of .. bytes
   pub patch_files: (u64, u64), //Patched .. out of .. files
@@ -33,7 +34,9 @@ pub struct Progress {
   pub finished_patching: bool,
 }
 
+#[derive(Clone)]
 pub enum Update {
+  Unknown,
   UpToDate,
   Resume,
   Full,
@@ -43,6 +46,7 @@ pub enum Update {
 impl Progress {
   fn new() -> Progress {
     Progress {
+      update: Update::Unknown,
       hashes_checked: (0,0),
       download_size: (0,0),
       patch_files: (0,0),
@@ -132,6 +136,8 @@ impl Downloader {
     match std::fs::read_dir(patch_dir_path) {
       Ok(iter) => {
         if iter.count() != 0 {
+          let mut state = self.state.lock().unwrap();
+          state.update = Update::Resume;
           return Ok(Update::Resume);
         }
       },
@@ -141,7 +147,9 @@ impl Downloader {
     let path = format!("{}UDKGame/Config/DefaultRenegadeX.ini", self.renegadex_location.borrow());
     let conf = match Ini::load_from_file(&path) {
       Ok(file) => file,
-      Err(_e) => { 
+      Err(_e) => {
+        let mut state = self.state.lock().unwrap();
+        state.update = Update::Full;
         return Ok(Update::Full);
       }
     };
@@ -150,8 +158,12 @@ impl Downloader {
     let game_version_number = section.get("GameVersionNumber").unwrap();
 
     if self.mirrors.version_number.borrow() != game_version_number {
+      let mut state = self.state.lock().unwrap();
+      state.update = Update::Delta;
       return Ok(Update::Delta);
     }
+    let mut state = self.state.lock().unwrap();
+    state.update = Update::UpToDate;
     return Ok(Update::UpToDate);
   }
 
@@ -171,6 +183,8 @@ impl Downloader {
     self.download_files()?;
     child_process.join().unwrap();
     //need to wait somehow for patch_queue to finish.
+    let mut state = self.state.lock().unwrap();
+    state.update = Update::UpToDate;
     return Ok(());
   }
   
@@ -472,7 +486,9 @@ impl Downloader {
                 }
                 if patch_entries.is_some() {
                   patch_entries.borrow().par_iter().for_each(|patch_entry| {
+                    println!("Patching with diff file: {}", &patch_entry.delta_path);
                     apply_patch(patch_entry, state.clone()).unwrap();
+                    println!("Patching success: {}", &patch_entry.delta_path);
                   });
                   std::fs::remove_file(patch_entries.borrow().first().unwrap().delta_path.clone()).unwrap();
                   patch_files = state.lock().unwrap().patch_files.clone();
