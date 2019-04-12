@@ -7,11 +7,13 @@ extern crate hex;
 extern crate num_cpus;
 
 //Standard library
-use std::collections::HashMap;
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::collections::BTreeMap;
 use std::fs::{OpenOptions,DirBuilder};
-use std::sync::{Arc, Mutex};
+use std::io::{Read, Write, Seek, SeekFrom};
+use std::iter::FromIterator;
+use std::ops::Deref;
 use std::panic;
+use std::sync::{Arc, Mutex};
 
 //Modules
 mod mirrors;
@@ -23,6 +25,7 @@ use traits::{AsString, BorrowUnwrap, Error};
 use rayon::prelude::*;
 use ini::Ini;
 use sha2::{Sha256, Digest};
+
 
 #[derive(Clone)]
 pub struct Progress {
@@ -90,7 +93,7 @@ pub struct Downloader {
   mirrors: Mirrors,
   instructions: Vec<Instruction>, //instructions.json
   pub state: Arc<Mutex<Progress>>,
-  download_hashmap: Mutex<HashMap<String, DownloadEntry>>,
+  download_hashmap: Mutex<BTreeMap<String, DownloadEntry>>,
   hash_queue: Mutex<Vec<Instruction>>,
   patch_queue: Arc<Mutex<Vec<Vec<PatchEntry>>>>
 }
@@ -104,7 +107,7 @@ impl Downloader {
       mirrors: Mirrors::new(),
       instructions: Vec::new(),
       state: Arc::new(Mutex::new(Progress::new())),
-      download_hashmap: Mutex::new(HashMap::new()),
+      download_hashmap: Mutex::new(BTreeMap::new()),
       hash_queue: Mutex::new(Vec::new()),
       patch_queue: Arc::new(Mutex::new(Vec::new())),
     }
@@ -202,7 +205,7 @@ impl Downloader {
     for retry in 0..3 {
       let result : Result<(),Error> = {
         let instructions_url = format!("{}/instructions.json", &self.mirrors.mirrors[retry].address);
-        println!("{}", &instructions_url);
+        //println!("{}", &instructions_url);
         let text = reqwest::get(&instructions_url)?.text().unwrap();
         // check instructions hash
         let mut sha256 = Sha256::new();
@@ -438,25 +441,34 @@ impl Downloader {
     let dir_path = format!("{}patcher/", self.renegadex_location.borrow());
     DirBuilder::new().recursive(true).create(dir_path).unwrap();
     let download_hashmap = self.download_hashmap.lock().unwrap();
-    download_hashmap.par_iter().try_for_each(
-      |(key, download_entry)| self.download_and_patch(key, download_entry)
-    )?;
+    let mut sorted_downloads_by_size = Vec::from_iter(download_hashmap.deref());
+    sorted_downloads_by_size.sort_by(|&(_, a), &(_,b)| b.file_size.cmp(&a.file_size));
+    let num_threads = num_cpus::get()*3;
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
+    pool.install(|| -> Result<(), Error> {
+      sorted_downloads_by_size.par_iter().try_for_each(
+        |(key, download_entry)| self.download_and_patch(key, download_entry)
+      )
+    })?;
     return Ok(());
   }
 
   fn download_and_patch(&self, key: &String, download_entry: &DownloadEntry) -> Result<(), Error> {
     for attempt in 0..5 {
       //TODO add in a random number generator in order to balance the load between the mirrors
+      let mirror = self.mirrors.get_mirror();
       let download_url = match download_entry.patch_entries[0].has_source {
-        true => format!("{}/delta/{}", self.mirrors.mirrors[attempt].address, &key),
-        false => format!("{}/full/{}", self.mirrors.mirrors[attempt].address, &key)
+        true => format!("{}/delta/{}", &mirror, &key),
+        false => format!("{}/full/{}", &mirror, &key)
       };
       match self.download_file(&download_url, download_entry, if attempt == 0 { true } else { false }) {
-        Ok(()) => break,
+        Ok(()) => {
+          break
+        },
         Err(e) => {
           if attempt == 4 { return Err(format!("Couldn't download file: {}", &key).into()) }
           else { println!("Downloading file from {} failed due to error: {}", download_url, e); }
-        },
+        }
       };
     }
     //apply delta
@@ -693,7 +705,7 @@ mod tests {
         patcher.poll_progress();
         patcher.download().unwrap();
       },
-      Update::Resume | Update::Delta | Update::Full => {
+      Update::Resume | Update::Delta | Update::Full | Update::Unknown => {
         println!("Update available!");
         patcher.poll_progress();
         patcher.download().unwrap();
