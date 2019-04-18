@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::traits::{AsString,Error};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Mirror {

@@ -14,6 +14,7 @@ rayon = "1.0.3"
 rand = "0.6.5"
 xdelta = { git = "https://github.com/SonnyX/xdelta-decoder-rust.git" }
 num_cpus = "1.10.0"
+hyper = "*"
 
 [profile.test]
 opt-level = 3

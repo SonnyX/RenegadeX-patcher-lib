@@ -5,6 +5,7 @@ extern crate sha2;
 extern crate ini;
 extern crate hex;
 extern crate num_cpus;
+extern crate hyper;
 
 //Standard library
 use std::collections::BTreeMap;
@@ -17,7 +18,9 @@ use std::sync::{Arc, Mutex};
 
 //Modules
 mod mirrors;
+mod downloader;
 pub mod traits;
+use downloader::BufWriter;
 use mirrors::Mirrors;
 use traits::{AsString, BorrowUnwrap, Error};
 
@@ -25,6 +28,8 @@ use traits::{AsString, BorrowUnwrap, Error};
 use rayon::prelude::*;
 use ini::Ini;
 use sha2::{Sha256, Digest};
+use hyper::rt::Future;
+use hyper::rt::Stream;
 
 
 #[derive(Clone)]
@@ -443,8 +448,8 @@ impl Downloader {
     let download_hashmap = self.download_hashmap.lock().unwrap();
     let mut sorted_downloads_by_size = Vec::from_iter(download_hashmap.deref());
     sorted_downloads_by_size.sort_by(|&(_, a), &(_,b)| b.file_size.cmp(&a.file_size));
-    let num_threads = num_cpus::get()*3;
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
+    let num_threads = num_cpus::get();
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads*3).build().unwrap();
     pool.install(|| -> Result<(), Error> {
       sorted_downloads_by_size.par_iter().try_for_each(
         |(key, download_entry)| self.download_and_patch(key, download_entry)
@@ -498,9 +503,9 @@ impl Downloader {
                 }
                 if patch_entries.is_some() {
                   patch_entries.borrow().par_iter().for_each(|patch_entry| {
-                    println!("Patching with diff file: {}", &patch_entry.delta_path);
+                    //println!("Patching with diff file: {}", &patch_entry.delta_path);
                     apply_patch(patch_entry, state.clone()).unwrap();
-                    println!("Patching success: {}", &patch_entry.delta_path);
+                    //println!("Patching success: {}", &patch_entry.delta_path);
                   });
                   std::fs::remove_file(patch_entries.borrow().first().unwrap().delta_path.clone()).unwrap();
                   patch_files = state.lock().unwrap().patch_files.clone();
@@ -555,8 +560,8 @@ impl Downloader {
         }
       }
     }
-    let http_client = reqwest::Client::new();
-    f.seek(SeekFrom::Start((download_entry.file_size) as u64)).unwrap();
+    //We have set up the file
+    f.seek(SeekFrom::Start(download_entry.file_size as u64)).unwrap();
     let mut buf = [0,0,0,0];
     f.read_exact(&mut buf).unwrap();
     let resume_part : usize = u32::from_be_bytes(buf) as usize;
@@ -567,25 +572,43 @@ impl Downloader {
         state.download_size.0 += (part_size * resume_part) as u64;
       }
     };
-    //iterate over all parts, downloading them into memory, writing them into the file, adding one to the counter at the end of the file.
-    for part_int in resume_part..parts_amount {
-      let bytes_start = part_int * part_size;
-      let mut bytes_end = part_int * part_size + part_size -1;
-      if bytes_end > download_entry.file_size {
-        bytes_end = download_entry.file_size.clone();
+    f.seek(SeekFrom::Start((part_size * resume_part) as u64)).unwrap();
+    let future;
+    {
+      let unlocked_state = self.state.clone();
+      let mut writer = BufWriter::new(f.try_clone().unwrap(), move | writer, total_written, written | {
+        //When the buffer is being written to file, this closure gets executed
+        let parts = total_written.clone() / part_size.clone() as u64;
+        writer.seek(SeekFrom::End(-4)).unwrap();
+        writer.write_all(&(parts as u32).to_be_bytes()).unwrap();
+        writer.seek(SeekFrom::Start(total_written.clone())).unwrap();
+        let mut state = unlocked_state.lock().unwrap();
+        state.download_size.0 += written.clone();
+      });
+      let client = hyper::Client::new();
+      let mut request = hyper::Request::builder();
+      let url = download_url.parse::<hyper::Uri>().unwrap();
+      request.uri(url).header("User-Agent", "sonny-launcher/1.0");
+      if resume_part != 0 {
+        request.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
       }
-      let download_request = http_client.get(download_url).header(reqwest::header::RANGE,format!("bytes={}-{}", bytes_start, bytes_end));
-      let download_response = download_request.send();
-      f.seek(SeekFrom::Start(bytes_start as u64)).unwrap();
-      let mut content : Vec<u8> = Vec::with_capacity(bytes_end - bytes_start + 1);
-      download_response?.read_to_end(&mut content).unwrap();
-      f.write_all(&content).unwrap();
-      //completed downloading and writing this part, so update the progress-tracker at the end of the file
-      f.seek(SeekFrom::Start((download_entry.file_size) as u64)).unwrap();
-      f.write_all(&(part_int as u32).to_be_bytes()).unwrap();
-      let mut state = self.state.lock().unwrap();
-      state.download_size.0 += (bytes_end - bytes_start) as u64;
+      future = client
+        .request(request.body(hyper::Body::empty()).unwrap())
+        .and_then(move |res| {
+            let ret = res.into_body().for_each(|chunk| {
+                writer.write_all(&chunk)
+                    .map_err(|e| panic!("Writer encountered an error: {}", e))
+            }).wait();
+            drop(writer);
+            ret
+        })
+        // If there was an error, let the user know...
+        .map_err(|err| {
+            panic!("Error while downloading file: {}", err)
+        });
     }
+    hyper::rt::run(future);
+
     //Remove the counter at the end of the file to finish the vcdiff file
     f.set_len(download_entry.file_size as u64).unwrap();
     
@@ -696,7 +719,7 @@ mod tests {
   #[test]
   fn downloader() {
     let mut patcher : Downloader = Downloader::new();
-    patcher.set_location("/home/sonny/RenegadeX/game_files/".to_string());
+    patcher.set_location("C:/RenegadeX/".to_string());
     patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
     patcher.retrieve_mirrors().unwrap();
     match patcher.update_available().unwrap() {
