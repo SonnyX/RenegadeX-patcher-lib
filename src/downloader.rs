@@ -60,6 +60,13 @@ impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> BufWriter<W, F> {
         ret
     }
 
+    pub fn into_inner(mut self) -> Result<W, Error> {
+      match self.flush_buf() {
+        Err(e) => Err(e),
+        Ok(()) => Ok(self.inner.take().unwrap())
+      }
+    }
+
     pub fn get_mut(&mut self) -> &mut W {
       self.inner.as_mut().unwrap()
     }

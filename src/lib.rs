@@ -566,13 +566,13 @@ impl Downloader {
     f.read_exact(&mut buf).unwrap();
     let resume_part : usize = u32::from_be_bytes(buf) as usize;
     if resume_part != 0 { 
-      println!("Resuming download \"{}\" from part {} out of {}", &download_entry.file_hash, resume_part, parts_amount);
+      println!("Resuming download \"{}\" from part {} out of {}", &download_entry.file_path, resume_part, parts_amount);
       if first_attempt {
         let mut state = self.state.lock().unwrap();
         state.download_size.0 += (part_size * resume_part) as u64;
       }
     };
-    f.seek(SeekFrom::Start((part_size * resume_part) as u64)).unwrap();
+
     let future;
     {
       let unlocked_state = self.state.clone();
@@ -585,9 +585,11 @@ impl Downloader {
         let mut state = unlocked_state.lock().unwrap();
         state.download_size.0 += written.clone();
       });
+      writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).unwrap();
       let client = hyper::Client::new();
       let mut request = hyper::Request::builder();
       let url = download_url.parse::<hyper::Uri>().unwrap();
+      let trunc_size = download_entry.file_size as u64;
       request.uri(url).header("User-Agent", "sonny-launcher/1.0");
       if resume_part != 0 {
         request.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
@@ -599,7 +601,9 @@ impl Downloader {
                 writer.write_all(&chunk)
                     .map_err(|e| panic!("Writer encountered an error: {}", e))
             }).wait();
-            drop(writer);
+            let f = writer.into_inner().unwrap();
+            f.set_len(trunc_size).unwrap();
+            drop(f);
             ret
         })
         // If there was an error, let the user know...
@@ -608,9 +612,6 @@ impl Downloader {
         });
     }
     hyper::rt::run(future);
-
-    //Remove the counter at the end of the file to finish the vcdiff file
-    f.set_len(download_entry.file_size as u64).unwrap();
     
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = get_hash(&download_entry.file_path);
@@ -640,8 +641,6 @@ impl Downloader {
         let download_size : (u64, u64) = state.download_size.clone();
         let patch_files : (u64, u64) = state.patch_files.clone();
         let hashes_checked : (u64, u64) = state.hashes_checked.clone();
-        let elapsed = old_time.elapsed();
-        old_time = std::time::Instant::now();
         if !finished_hash {
           if old_download_size != download_size {
             println!("Comparing files, total to be downloaded: {:.1} MB", (download_size.1 as f64)*0.000001);
@@ -651,6 +650,8 @@ impl Downloader {
           }
         } else {
           if old_download_size != download_size {
+            let elapsed = old_time.elapsed();
+            old_time = std::time::Instant::now();
             println!("Downloaded {:.1}/{:.1} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000001, (download_size.1 as f64)*0.000001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
           }
           if patch_files != old_patch_files {
