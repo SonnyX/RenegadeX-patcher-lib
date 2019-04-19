@@ -6,6 +6,7 @@ extern crate ini;
 extern crate hex;
 extern crate num_cpus;
 extern crate hyper;
+extern crate tokio;
 
 //Standard library
 use std::collections::BTreeMap;
@@ -449,7 +450,7 @@ impl Downloader {
     let mut sorted_downloads_by_size = Vec::from_iter(download_hashmap.deref());
     sorted_downloads_by_size.sort_by(|&(_, a), &(_,b)| b.file_size.cmp(&a.file_size));
     let num_threads = num_cpus::get();
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads*3).build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads*2).build().unwrap();
     pool.install(|| -> Result<(), Error> {
       sorted_downloads_by_size.par_iter().try_for_each(
         |(key, download_entry)| self.download_and_patch(key, download_entry)
@@ -597,13 +598,14 @@ impl Downloader {
       future = client
         .request(request.body(hyper::Body::empty()).unwrap())
         .and_then(move |res| {
-            let ret = res.into_body().for_each(|chunk| {
-                writer.write_all(&chunk)
-                    .map_err(|e| panic!("Writer encountered an error: {}", e))
-            }).wait();
-            let f = writer.into_inner().unwrap();
-            f.set_len(trunc_size).unwrap();
-            drop(f);
+            use hyper::rt::*;
+            let ret = res.into_body().for_each(move |chunk| {
+                writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e))
+            }).and_then(move |_| {
+              f.set_len(trunc_size).unwrap();
+              drop(f);
+              Ok(())
+            });
             ret
         })
         // If there was an error, let the user know...
@@ -611,8 +613,7 @@ impl Downloader {
             panic!("Error while downloading file: {}", err)
         });
     }
-    hyper::rt::run(future);
-    
+    tokio::runtime::current_thread::Runtime::new().unwrap().block_on(future).unwrap();
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = get_hash(&download_entry.file_path);
     if &hash != &download_entry.file_hash {
@@ -634,7 +635,7 @@ impl Downloader {
       let mut old_patch_files : (u64, u64) = (0, 0);
       let mut old_hashes_checked : (u64, u64) = (0, 0);
       while !finished_patching {
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::thread::sleep(std::time::Duration::from_millis(1000));
         let state = state.lock().unwrap();
         finished_hash = state.finished_hash.clone();
         finished_patching = state.finished_patching.clone();
