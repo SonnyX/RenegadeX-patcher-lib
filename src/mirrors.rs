@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::traits::{AsString,Error};
 use std::sync::Arc;
+use std::net::ToSocketAddrs;
 
 #[derive(Debug, Clone)]
 pub struct Mirror {
@@ -10,6 +11,27 @@ pub struct Mirror {
   pub ping: f64,
   pub in_use: usize,
   pub enabled: bool,
+  pub ip: SocketAddrs,//Vec<std::net::SocketAddr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SocketAddrs {
+  inner: Vec<std::net::SocketAddr>
+}
+
+impl From<url::SocketAddrs> for SocketAddrs {
+  fn from(other: url::SocketAddrs) -> Self {
+    SocketAddrs {
+      inner: other.collect()
+    }
+  }
+}
+
+impl ToSocketAddrs for SocketAddrs {
+  type Iter = std::vec::IntoIter<std::net::SocketAddr>;
+  fn to_socket_addrs(&self) -> std::io::Result<std::vec::IntoIter<std::net::SocketAddr>> {
+    Ok(self.inner.clone().into_iter())
+  }
 }
 
 pub struct Mirrors {
@@ -64,6 +86,7 @@ impl Mirrors {
     for mirror in mirror_vec {
       self.mirrors.push(Mirror{
         address: Arc::new(format!("{}{}", &mirror, release_data["game"]["patch_path"].as_string())),
+        ip: mirror.parse::<url::Url>().unwrap().to_socket_addrs().unwrap().into(),
         speed: 80.0,
         ping: 500.0,
         in_use: 0,
@@ -78,11 +101,11 @@ impl Mirrors {
   }
 
   
-  pub fn get_mirror(&self) -> Arc<String> {
+  pub fn get_mirror(&self) -> Mirror {
     for i in 0..5 {
       for mirror in self.mirrors.iter() {
         if mirror.enabled && Arc::strong_count(&mirror.address) == i {
-          return mirror.address.clone();
+          return mirror.clone();
         }
       }
     }
@@ -112,6 +135,7 @@ impl Mirrors {
             if content_length.is_none() {
               Mirror { 
                 address: mirror.address,
+                ip: mirror.ip,
                 speed: 0.0,
                 ping: 1000.0,
                 in_use: mirror.in_use,
@@ -121,6 +145,7 @@ impl Mirrors {
               if content_length.unwrap() != "10000" { 
                 Mirror { 
                   address: mirror.address,
+                  ip: mirror.ip,
                   speed: 0.0,
                   ping: 1000.0,
                   in_use: mirror.in_use,
@@ -129,6 +154,7 @@ impl Mirrors {
               } else {
                 Mirror { 
                   address: mirror.address,
+                  ip: mirror.ip,
                   speed: (10000 as f64)/(duration.as_millis() as f64),
                   ping: (duration.as_micros() as f64)/(1000 as f64),
                   in_use: mirror.in_use,
@@ -140,6 +166,7 @@ impl Mirrors {
           Err(_e) => {
             Mirror { 
               address: mirror.address,
+              ip: mirror.ip,
               speed: 0.0,
               ping: 1000.0,
               in_use: mirror.in_use,

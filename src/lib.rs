@@ -6,7 +6,10 @@ extern crate ini;
 extern crate hex;
 extern crate num_cpus;
 extern crate hyper;
+#[macro_use] extern crate futures;
 extern crate tokio;
+extern crate url;
+extern crate tokio_reactor;
 
 //Standard library
 use std::collections::BTreeMap;
@@ -22,7 +25,7 @@ mod mirrors;
 mod downloader;
 pub mod traits;
 use downloader::BufWriter;
-use mirrors::Mirrors;
+use mirrors::{Mirrors, Mirror};
 use traits::{AsString, BorrowUnwrap, Error};
 
 //External crates
@@ -30,7 +33,6 @@ use rayon::prelude::*;
 use ini::Ini;
 use sha2::{Sha256, Digest};
 use hyper::rt::Future;
-use hyper::rt::Stream;
 
 
 #[derive(Clone)]
@@ -464,10 +466,10 @@ impl Downloader {
       //TODO add in a random number generator in order to balance the load between the mirrors
       let mirror = self.mirrors.get_mirror();
       let download_url = match download_entry.patch_entries[0].has_source {
-        true => format!("{}/delta/{}", &mirror, &key),
-        false => format!("{}/full/{}", &mirror, &key)
+        true => format!("{}/delta/{}", &mirror.address, &key),
+        false => format!("{}/full/{}", &mirror.address, &key)
       };
-      match self.download_file(&download_url, download_entry, if attempt == 0 { true } else { false }) {
+      match self.download_file(mirror, &download_url, download_entry, if attempt == 0 { true } else { false }) {
         Ok(()) => {
           break
         },
@@ -532,7 +534,7 @@ impl Downloader {
 /*
  * Downloads the file in parts
  */
-  fn download_file(&self, download_url: &String, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
+  fn download_file(&self, mirror: Mirror, download_url: &String, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
     let part_size = 10u64.pow(6) as usize; //1.000.000
     let mut f = match OpenOptions::new().read(true).write(true).create(true).open(&download_entry.file_path) {
       Ok(file) => file,
@@ -574,7 +576,7 @@ impl Downloader {
       }
     };
 
-    let future;
+    let mut future;
     {
       let unlocked_state = self.state.clone();
       let mut writer = BufWriter::new(f.try_clone().unwrap(), move | writer, total_written, written | {
@@ -587,17 +589,19 @@ impl Downloader {
         state.download_size.0 += written.clone();
       });
       writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).unwrap();
-      let client = hyper::Client::new();
-      let mut request = hyper::Request::builder();
+
       let url = download_url.parse::<hyper::Uri>().unwrap();
       let trunc_size = download_entry.file_size as u64;
-      request.uri(url).header("User-Agent", "sonny-launcher/1.0");
-      if resume_part != 0 {
-        request.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
-      }
-      future = client
-        .request(request.body(hyper::Body::empty()).unwrap())
-        .and_then(move |res| {
+      future = tokio::net::TcpStream::from_std(std::net::TcpStream::connect(&mirror.ip).unwrap(), &tokio_reactor::Handle::default()).map(|tcp| {
+        hyper::client::conn::handshake(tcp)
+      }).unwrap().and_then(move |(mut client, conn)| {
+        let mut req = hyper::Request::builder();
+        req.uri(url.path()).header("host", url.host().unwrap()).header("User-Agent", "sonny-launcher/1.0");
+        if resume_part != 0 {
+          req.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
+        };
+        let req = req.body(hyper::Body::empty()).unwrap();
+        let res = client.send_request(req).and_then(move |res| {
             use hyper::rt::*;
             let ret = res.into_body().for_each(move |chunk| {
                 writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e))
@@ -612,8 +616,18 @@ impl Downloader {
         .map_err(|err| {
             panic!("Error while downloading file: {}", err)
         });
+        // Put in an Option so poll_fn can return it later
+        let mut conn = Some(conn);
+        let until_upgrade = futures::future::poll_fn(move || {
+          try_ready!(conn.as_mut().unwrap().poll_without_shutdown());
+          Ok(futures::Async::Ready(conn.take().unwrap()))
+        });
+
+        res.join(until_upgrade)
+      });
     }
     tokio::runtime::current_thread::Runtime::new().unwrap().block_on(future).unwrap();
+
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = get_hash(&download_entry.file_path);
     if &hash != &download_entry.file_hash {

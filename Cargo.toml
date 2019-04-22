@@ -16,6 +16,9 @@ xdelta = { git = "https://github.com/SonnyX/xdelta-decoder-rust.git" }
 num_cpus = "1.10.0"
 hyper = "0.12.27"
 tokio = "0.1.18"
+tokio-reactor = "0.1.9"
+url = "1.7.2"
+futures = "*"
 
 [profile.test]
 opt-level = 3
