@@ -50,11 +50,7 @@ impl Mirrors {
   }
 
   pub fn is_empty(&self) -> bool {
-    if self.mirrors.len() == 0 {
-      true
-    } else {
-      false
-    }
+    self.mirrors.is_empty()
   }
 
   pub fn remove(&mut self, entry: usize) {
@@ -68,7 +64,7 @@ impl Mirrors {
   /**
   Downloads release.json from the renegade-x server and adds it to the struct
   */
-  pub fn get_mirrors(&mut self, location: &String) -> Result<(), Error> {
+  pub fn get_mirrors(&mut self, location: &str) -> Result<(), Error> {
     let mut release_json = match reqwest::get(location) {
       Ok(result) => result,
       Err(e) => return Err(format!("Is your internet down? {}", e).into())
@@ -97,7 +93,7 @@ impl Mirrors {
     println!("{:#?}", &self.mirrors);
     self.instructions_hash = Some(release_data["game"]["instructions_hash"].as_string());
     self.version_number = Some(release_data["game"]["version_number"].as_u64().unwrap().to_string());
-    return Ok(());
+    Ok(())
   }
 
   
@@ -122,7 +118,7 @@ impl Mirrors {
       let fastest_mirror_speed = self.mirrors[0].speed;
       handles.push(std::thread::spawn(move || -> Mirror {
         let mut url = format!("{}", mirror.address.to_owned());
-        url.truncate(url.rfind("/").unwrap() + 1);
+        url.truncate(url.rfind('/').unwrap() + 1);
         let http_client = reqwest::Client::builder().timeout(Duration::from_millis(10000/fastest_mirror_speed as u64 * 4)).build().unwrap();
         url.push_str("10kb_file");
         let download_request = http_client.get(url.as_str());
@@ -132,7 +128,7 @@ impl Mirrors {
           Ok(result) => {
             let duration = start.elapsed();
             let content_length = result.headers().get("content-length");
-            if content_length.is_none() {
+            if content_length.is_none() || content_length.unwrap() != "10000" {
               Mirror { 
                 address: mirror.address,
                 ip: mirror.ip,
@@ -142,24 +138,13 @@ impl Mirrors {
                 enabled: false,
               }
             } else {
-              if content_length.unwrap() != "10000" { 
-                Mirror { 
-                  address: mirror.address,
-                  ip: mirror.ip,
-                  speed: 0.0,
-                  ping: 1000.0,
-                  in_use: mirror.in_use,
-                  enabled: false,
-                }
-              } else {
-                Mirror { 
-                  address: mirror.address,
-                  ip: mirror.ip,
-                  speed: (10000 as f64)/(duration.as_millis() as f64),
-                  ping: (duration.as_micros() as f64)/(1000 as f64),
-                  in_use: mirror.in_use,
-                  enabled: true,
-                }
+              Mirror { 
+                address: mirror.address,
+                ip: mirror.ip,
+                speed: 10_000.0/(duration.as_millis() as f64),
+                ping: (duration.as_micros() as f64)/1000.0,
+                in_use: mirror.in_use,
+                enabled: true,
               }
             }
           },
@@ -177,16 +162,12 @@ impl Mirrors {
       }));
     }
     for handle in handles {
-      match handle.join() {
-        Ok(mirror) => {
-          for i in 0..self.mirrors.len() {
-            if self.mirrors[i].address == mirror.address {
-              self.mirrors[i] = mirror;
-              break;
-            }
-          }
-        },
-        Err(_) => { panic!("Failed to execute thread in test_mirrors!") }
+      let mirror = handle.join().expect("Failed to execute thread in test_mirrors!");
+      for i in 0..self.mirrors.len() {
+        if self.mirrors[i].address == mirror.address {
+          self.mirrors[i] = mirror;
+          break;
+        }
       }
     }
     if self.mirrors.len() > 1 {
@@ -198,6 +179,6 @@ impl Mirrors {
         }
       }
     }
-    return Ok(());
+    Ok(())
   }
 }

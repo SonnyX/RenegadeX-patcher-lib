@@ -17,7 +17,7 @@ pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> {
 
 impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> BufWriter<W, F> {
     pub fn new(inner: W, call: F) -> BufWriter<W,F> {
-        BufWriter::with_capacity(1005000, inner, call)
+        BufWriter::with_capacity(1_005_000, inner, call)
     }
 
     pub fn with_capacity(cap: usize, inner: W, call: F) -> BufWriter<W, F> {
@@ -106,11 +106,8 @@ impl<W: Write + Seek, F: FnMut(&mut W, &mut u64, &mut u64)> Seek for BufWriter<W
     ///
     /// Seeking always writes out the internal buffer before seeking.
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        match pos {
-          SeekFrom::Start(posi) => {
-            self.written = posi.into();
-          },
-          _ => {}
+        if let SeekFrom::Start(posi) = pos {
+            self.written = posi;
         };
         self.flush_buf().and_then(|_| self.get_mut().seek(pos))
     }
