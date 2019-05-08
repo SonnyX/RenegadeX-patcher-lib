@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::traits::{AsString,Error};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::net::ToSocketAddrs;
 
 #[derive(Debug, Clone)]
@@ -9,12 +9,11 @@ pub struct Mirror {
   pub address: Arc<String>,
   pub speed: f64,
   pub ping: f64,
-  pub in_use: usize,
-  pub enabled: bool,
+  pub enabled: Arc<Mutex<bool>>,
   pub ip: SocketAddrs,//Vec<std::net::SocketAddr>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SocketAddrs {
   inner: Vec<std::net::SocketAddr>
 }
@@ -53,12 +52,17 @@ impl Mirrors {
     self.mirrors.is_empty()
   }
 
-  pub fn remove(&mut self, entry: usize) {
-    self.mirrors.remove(entry);
+  pub fn remove(&self, entry: Mirror) {
+    for i in 0..self.mirrors.len() {
+      if self.mirrors[i].ip == entry.ip {
+        self.disable(i);
+      }
+    }
   }
 
-  pub fn disable(&mut self, entry: usize) {
-    self.mirrors[entry].enabled = false;
+  pub fn disable(&self, entry: usize) {
+    let mirrors = self.mirrors[entry].enabled.clone();
+    *mirrors.lock().unwrap() = false;
   }
 
   /**
@@ -85,8 +89,7 @@ impl Mirrors {
         ip: mirror.parse::<url::Url>().unwrap().to_socket_addrs().unwrap().into(),
         speed: 80.0,
         ping: 500.0,
-        in_use: 0,
-        enabled: false,
+        enabled: Arc::new(Mutex::new(false)),
       });
     }
     self.test_mirrors()?;
@@ -98,9 +101,10 @@ impl Mirrors {
 
   
   pub fn get_mirror(&self) -> Mirror {
-    for i in 0..5 {
+    for i in 0..20 {
       for mirror in self.mirrors.iter() {
-        if mirror.enabled && Arc::strong_count(&mirror.address) == i {
+        if *mirror.enabled.lock().unwrap() && Arc::strong_count(&mirror.address) == i {
+          println!("i: {}, mirror: {}", i, &mirror.address);
           return mirror.clone();
         }
       }
@@ -134,8 +138,7 @@ impl Mirrors {
                 ip: mirror.ip,
                 speed: 0.0,
                 ping: 1000.0,
-                in_use: mirror.in_use,
-                enabled: false,
+                enabled: Arc::new(Mutex::new(false)),
               }
             } else {
               Mirror { 
@@ -143,8 +146,7 @@ impl Mirrors {
                 ip: mirror.ip,
                 speed: 10_000.0/(duration.as_millis() as f64),
                 ping: (duration.as_micros() as f64)/1000.0,
-                in_use: mirror.in_use,
-                enabled: true,
+                enabled: Arc::new(Mutex::new(true)),
               }
             }
           },
@@ -154,8 +156,7 @@ impl Mirrors {
               ip: mirror.ip,
               speed: 0.0,
               ping: 1000.0,
-              in_use: mirror.in_use,
-              enabled: false,
+              enabled: Arc::new(Mutex::new(false)),
             }
           }
         }
@@ -175,7 +176,7 @@ impl Mirrors {
       let best_speed = self.mirrors[0].speed;
       for mut elem in self.mirrors.iter_mut() {
         if elem.speed < best_speed / 4.0 {
-          elem.enabled = false;
+          elem.enabled = Arc::new(Mutex::new(false));
         }
       }
     }

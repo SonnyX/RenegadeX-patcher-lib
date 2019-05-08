@@ -1,7 +1,7 @@
 use std::io::prelude::*; 
 use std::io::{self, Error, ErrorKind, SeekFrom}; 
 
-pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> {
+pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64)> {
     inner: Option<W>,
     buf: Vec<u8>,
     written: u64,
@@ -15,7 +15,7 @@ pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> {
  
 */
 
-impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> BufWriter<W, F> {
+impl<W: Write, F: FnMut(&mut W, &mut u64)> BufWriter<W, F> {
     pub fn new(inner: W, call: F) -> BufWriter<W,F> {
         BufWriter::with_capacity(1_005_000, inner, call)
     }
@@ -55,16 +55,9 @@ impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> BufWriter<W, F> {
         }
         if ret.is_ok() {
           self.written += written as u64;
-          (self.callback)(self.inner.as_mut().unwrap(), &mut self.written, &mut (written as u64));
+          (self.callback)(self.inner.as_mut().unwrap(), &mut self.written);
         }
         ret
-    }
-
-    pub fn into_inner(mut self) -> Result<W, Error> {
-      match self.flush_buf() {
-        Err(e) => Err(e),
-        Ok(()) => Ok(self.inner.take().unwrap())
-      }
     }
 
     pub fn get_mut(&mut self) -> &mut W {
@@ -72,7 +65,7 @@ impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> BufWriter<W, F> {
     }
 }
 
-impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> Write for BufWriter<W, F> {
+impl<W: Write, F: FnMut(&mut W, &mut u64)> Write for BufWriter<W, F> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if self.buf.len() + buf.len() > self.buf.capacity() {
             self.flush_buf()?;
@@ -92,7 +85,7 @@ impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> Write for BufWriter<W, F> {
     }
 }
 
-impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> Drop for BufWriter<W, F> {
+impl<W: Write, F: FnMut(&mut W, &mut u64)> Drop for BufWriter<W, F> {
     fn drop(&mut self) {
         if self.inner.is_some() && !self.panicked {
             // dtors should not panic, so we ignore a failed flush
@@ -101,7 +94,7 @@ impl<W: Write, F: FnMut(&mut W, &mut u64, &mut u64)> Drop for BufWriter<W, F> {
     }
 }
 
-impl<W: Write + Seek, F: FnMut(&mut W, &mut u64, &mut u64)> Seek for BufWriter<W, F> {
+impl<W: Write + Seek, F: FnMut(&mut W, &mut u64)> Seek for BufWriter<W, F> {
     /// Seek to the offset, in bytes, in the underlying writer.
     ///
     /// Seeking always writes out the internal buffer before seeking.

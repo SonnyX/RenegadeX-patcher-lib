@@ -34,7 +34,6 @@ use ini::Ini;
 use sha2::{Sha256, Digest};
 use hyper::rt::Future;
 
-
 #[derive(Clone)]
 pub struct Progress {
   pub update: Update,
@@ -125,14 +124,27 @@ impl Downloader {
       patch_queue: Arc::new(Mutex::new(Vec::new())),
     }
   }
+
+  ///
+  ///
+  ///
+  ///
   pub fn set_location(&mut self, loc: String) {
     self.renegadex_location = Some(format!("{}/", loc).replace("\\","/").replace("//","/"));
   }
   
+  ///
+  ///
+  ///
+  ///
   pub fn set_version_url(&mut self, url: String) {
     self.version_url = Some(url);
   }
 
+  ///
+  ///
+  ///
+  ///
   pub fn retrieve_mirrors(&mut self) -> Result<(), Error> {
     if self.version_url.is_none() {
       Err("Version URL was not set before calling retrieve_mirrors".to_string().into())
@@ -141,6 +153,10 @@ impl Downloader {
     }
   }
 
+  ///
+  ///
+  ///
+  ///
   pub fn update_available(&self) -> Result<Update, String> {
     if self.mirrors.is_empty() {
       return Err("No mirrors found, aborting! Did you retrieve mirrors?".to_string());
@@ -154,6 +170,7 @@ impl Downloader {
         if iter.count() != 0 {
           let mut state = self.state.lock().unwrap();
           state.update = Update::Resume;
+          drop(state);
           return Ok(Update::Resume);
         }
       },
@@ -166,6 +183,7 @@ impl Downloader {
       Err(_e) => {
         let mut state = self.state.lock().unwrap();
         state.update = Update::Full;
+        drop(state);
         return Ok(Update::Full);
       }
     };
@@ -176,13 +194,19 @@ impl Downloader {
     if self.mirrors.version_number.borrow() != game_version_number {
       let mut state = self.state.lock().unwrap();
       state.update = Update::Delta;
+      drop(state);
       return Ok(Update::Delta);
     }
     let mut state = self.state.lock().unwrap();
     state.update = Update::UpToDate;
+    drop(state);
     Ok(Update::UpToDate)
   }
 
+  ///
+  ///
+  ///
+  ///
   pub fn download(&mut self) -> Result<(), Error> {
     if self.mirrors.is_empty() {
       return Err("No mirrors found! Did you retrieve mirrors?".to_string().into());
@@ -201,6 +225,7 @@ impl Downloader {
     //need to wait somehow for patch_queue to finish.
     let mut state = self.state.lock().unwrap();
     state.update = Update::UpToDate;
+    drop(state);
     Ok(())
   }
   
@@ -216,8 +241,9 @@ impl Downloader {
     }
     let instructions_mutex : Mutex<String> = Mutex::new("".to_string());
     for retry in 0..3 {
+      let mirror = self.mirrors.get_mirror();
       let result : Result<(),Error> = {
-        let instructions_url = format!("{}/instructions.json", &self.mirrors.mirrors[retry].address);
+        let instructions_url = format!("{}/instructions.json", &mirror.address);
         //println!("{}", &instructions_url);
         let text = reqwest::get(&instructions_url)?.text().unwrap();
         // check instructions hash
@@ -232,14 +258,13 @@ impl Downloader {
         }
       };
       if result.is_ok() {
-        for _i in 0..retry {
-          println!("Removing mirror: {:#?}", &self.mirrors.mirrors[0]);
-          self.mirrors.remove(0);
-        }
         break;
       } else if result.is_err() && retry == 2 {
         //TODO: This is bound to one day go wrong
         return Err("Couldn't fetch instructions.json".to_string().into());
+      } else {
+        println!("Removing mirror: {:#?}", &mirror);
+        self.mirrors.remove(mirror);
       }
     }
     let instructions_text : String = instructions_mutex.into_inner().unwrap();
@@ -288,8 +313,10 @@ impl Downloader {
               has_delta:           instruction["HasDelta"].as_bool().unwrap()
             };
             hash_queue.push(hash_entry);
+            drop(hash_queue);
             let mut state = self.state.lock().unwrap();
             state.hashes_checked.1 += 1;
+            drop(state);
           } else {
             println!("Found entry {} that needs deleting.", file_path);
             //TODO: DeletionQueue, delete it straight away?
@@ -310,6 +337,7 @@ impl Downloader {
               download_hashmap.insert(key.clone(), download_entry);
               let mut state = self.state.lock().unwrap();
               state.download_size.1 += instruction["FullReplaceSize"].as_u64().unwrap();
+              drop(state);
             }
             let patch_entry = PatchEntry {
               target_path: file_path,
@@ -317,9 +345,11 @@ impl Downloader {
               has_source: false,
               target_hash: key.clone(),
             };
+            download_hashmap.get_mut(&key).unwrap().patch_entries.push(patch_entry); //should we add it to a downloadQueue??
+            drop(download_hashmap);
             let mut state = self.state.lock().unwrap();
             state.patch_files.1 += 1;
-            download_hashmap.get_mut(&key).unwrap().patch_entries.push(patch_entry); //should we add it to a downloadQueue??
+            drop(state);
           }
         }
       };
@@ -393,6 +423,7 @@ impl Downloader {
           download_hashmap.insert(key.clone(), download_entry);
           let mut state = self.state.lock().unwrap();
           state.download_size.1 += hash_entry.delta_size as u64;
+          drop(state);
         }
 
         let patch_entry = PatchEntry {
@@ -401,11 +432,17 @@ impl Downloader {
           has_source: true,
           target_hash: hash_entry.new_hash.clone().unwrap(),
         };
+        download_hashmap.get_mut(&key).unwrap().patch_entries.push(patch_entry);
+        drop(download_hashmap);
         let mut state = self.state.lock().unwrap();
         state.patch_files.1 += 1;
-        download_hashmap.get_mut(&key).unwrap().patch_entries.push(patch_entry);
+        state.hashes_checked.0 += 1;
+        drop(state);
       } else if hash_entry.new_hash.is_some() && &file_hash == hash_entry.new_hash.borrow() {
         //this file is up to date
+        let mut state = self.state.lock().unwrap();
+        state.hashes_checked.0 += 1;
+        drop(state);
       } else {
         //this file does not math old hash, nor the new hash, thus it's corrupted
         //download full file
@@ -428,6 +465,7 @@ impl Downloader {
           download_hashmap.insert(key.clone(), download_entry);
           let mut state = self.state.lock().unwrap();
           state.download_size.1 += hash_entry.full_replace_size as u64;
+          drop(state);
         }
 
         let patch_entry = PatchEntry {
@@ -436,12 +474,13 @@ impl Downloader {
           has_source: false,
           target_hash: hash_entry.new_hash.clone().unwrap(),
         };
+        download_hashmap.get_mut(key).unwrap().patch_entries.push(patch_entry);
+        drop(download_hashmap);
         let mut state = self.state.lock().unwrap();
         state.patch_files.1 += 1;
-        download_hashmap.get_mut(key).unwrap().patch_entries.push(patch_entry);
+        state.hashes_checked.0 += 1;
+        drop(state);
       }
-      let mut state = self.state.lock().unwrap();
-      state.hashes_checked.0 += 1;
     });
     self.state.lock().unwrap().finished_hash = true;
   }
@@ -456,16 +495,21 @@ impl Downloader {
     let download_hashmap = self.download_hashmap.lock().unwrap();
     let mut sorted_downloads_by_size = Vec::from_iter(download_hashmap.deref());
     sorted_downloads_by_size.sort_by(|&(_, a), &(_,b)| b.file_size.cmp(&a.file_size));
-    let num_threads = num_cpus::get();
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads*2).build().unwrap();
-    pool.install(|| -> Result<(), Error> {
-      sorted_downloads_by_size.par_iter().try_for_each(
-        |(key, download_entry)| self.download_and_patch(key, download_entry)
-      )
-    })?;
+    let pool = rayon::ThreadPoolBuilder::new().breadth_first().num_threads(20).build().unwrap();
+    pool.install(|| {
+      rayon::scope(|s| {
+        for (key, download_entry) in sorted_downloads_by_size.into_iter() {
+          s.spawn(move |_| {self.download_and_patch(key, download_entry).unwrap();});
+        }
+      })
+    });
     Ok(())
   }
 
+  ///
+  ///
+  ///
+  ///
   fn download_and_patch(&self, key: &str, download_entry: &DownloadEntry) -> Result<(), Error> {
     for attempt in 0..5 {
       //TODO add in a random number generator in order to balance the load between the mirrors
@@ -474,24 +518,36 @@ impl Downloader {
         true => format!("{}/delta/{}", &mirror.address, &key),
         false => format!("{}/full/{}", &mirror.address, &key)
       };
-      match self.download_file(mirror, &download_url, download_entry, attempt == 0) {
+      match self.download_file(&mirror, &download_url, download_entry, attempt == 0) {
         Ok(()) => {
           break
         },
         Err(e) => {
+          println!("Download {} failed with error message: {}", &download_url, e);
           if attempt == 4 { return Err(format!("Couldn't download file: {}", &key).into()) }
-          else { println!("Downloading file from {} failed due to error: {}", download_url, e); }
+          else {
+            println!("Downloading file from {} failed due to error: {}", download_url, e);
+            if e.remove_mirror {
+              println!("Removing mirror: {}", mirror.address);
+              self.mirrors.remove(mirror);
+            }
+          }
         }
       };
     }
     //apply delta
     let mut patch_queue = self.patch_queue.lock().unwrap();
     patch_queue.push(download_entry.patch_entries.clone());
+    drop(patch_queue);
     Ok(())
   }
 
+  ///
+  ///
+  ///
+  ///
   fn check_patch_queue(&self) -> std::thread::JoinHandle<()> {
-    let state = self.state.clone();
+    let unlocked_state = self.state.clone();
     let patch_queue_unlocked = self.patch_queue.clone();
     let renegadex_location = self.renegadex_location.clone();
     let num_threads = num_cpus::get()-1;
@@ -501,33 +557,41 @@ impl Downloader {
         rayon::scope(|s| {
           for _i in 0..num_threads {
             s.spawn(|_| {
-              let mut patch_files = state.lock().unwrap().patch_files;
+              let state = unlocked_state.lock().unwrap();
+              let mut patch_files = state.patch_files;
+              drop(state);
               while patch_files.0 != patch_files.1 {
                 // Check for entry in patch_queue, get one, remove it, free the mutex, process entry.
                 let patch_entries : Option<Vec<PatchEntry>>;
                 {
                   let mut patch_queue = patch_queue_unlocked.lock().unwrap();
                   patch_entries = patch_queue.pop();
+                  drop(patch_queue);
                 }
                 if patch_entries.is_some() {
                   patch_entries.borrow().par_iter().for_each(|patch_entry| {
                     //println!("Patching with diff file: {}", &patch_entry.delta_path);
-                    apply_patch(patch_entry, state.clone()).unwrap();
+                    apply_patch(patch_entry, unlocked_state.clone()).unwrap();
                     //println!("Patching success: {}", &patch_entry.delta_path);
                   });
                   std::fs::remove_file(patch_entries.borrow().first().unwrap().delta_path.clone()).unwrap();
-                  patch_files = state.lock().unwrap().patch_files;
+                  let state = unlocked_state.lock().unwrap();
+                  patch_files = state.patch_files;
+                  drop(state);
                 } else {
                   std::thread::sleep(std::time::Duration::from_millis(20));
-                  patch_files = state.lock().unwrap().patch_files;
+                  let state = unlocked_state.lock().unwrap();
+                  patch_files = state.patch_files;
+                  drop(state);
                 }
               }
             });
           }
         });
         {
-          let mut state = state.lock().unwrap();
+          let mut state = unlocked_state.lock().unwrap();
           state.finished_patching = true;
+          drop(state);
         }
         //remove patcher folder and all remaining files in there:
         std::fs::remove_dir_all(format!("{}patcher/", renegadex_location.unwrap())).unwrap();
@@ -535,11 +599,11 @@ impl Downloader {
     })
   }
 
-
-/*
- * Downloads the file in parts
- */
-  fn download_file(&self, mirror: Mirror, download_url: &str, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
+  ///
+  /// Downloads the file in parts
+  ///
+  ///
+  fn download_file(&self, mirror: &Mirror, download_url: &str, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
     let part_size = 10u64.pow(6) as usize; //1.000.000
     let mut f = match OpenOptions::new().read(true).write(true).create(true).open(&download_entry.file_path) {
       Ok(file) => file,
@@ -558,6 +622,7 @@ impl Downloader {
         if hash == download_entry.file_hash {
           let mut state = self.state.lock().unwrap();
           state.download_size.0 += (download_entry.file_size) as u64;
+          drop(state);
           return Ok(());
         }
       }
@@ -578,20 +643,19 @@ impl Downloader {
       if first_attempt {
         let mut state = self.state.lock().unwrap();
         state.download_size.0 += (part_size * resume_part) as u64;
+        drop(state);
       }
     };
 
     let mut future;
     {
       let unlocked_state = self.state.clone();
-      let mut writer = BufWriter::new(f.try_clone().unwrap(), move | writer, total_written, written | {
+      let mut writer = BufWriter::new(f.try_clone().unwrap(), move | writer, total_written | {
         //When the buffer is being written to file, this closure gets executed
         let parts = *total_written / part_size as u64;
         writer.seek(SeekFrom::End(-4)).unwrap();
         writer.write_all(&(parts as u32).to_be_bytes()).unwrap();
         writer.seek(SeekFrom::Start(*total_written)).unwrap();
-        let mut state = unlocked_state.lock().unwrap();
-        state.download_size.0 += *written;
       });
       writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).unwrap();
 
@@ -606,20 +670,7 @@ impl Downloader {
           req.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
         };
         let req = req.body(hyper::Body::empty()).unwrap();
-        let res = client.send_request(req).and_then(move |res| {
-            use hyper::rt::*;
-            res.into_body().for_each(move |chunk| {
-                writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e))
-            }).and_then(move |_| {
-              f.set_len(trunc_size).unwrap();
-              drop(f);
-              Ok(())
-            })
-        })
-        // If there was an error, let the user know...
-        .map_err(|err| {
-            panic!("Error while downloading file: {}", err)
-        });
+        let res = client.send_request(req).and_then(move |res| process_response(res, writer, unlocked_state, f, trunc_size));
         // Put in an Option so poll_fn can return it later
         let mut conn = Some(conn);
         let until_upgrade = futures::future::poll_fn(move || {
@@ -630,25 +681,28 @@ impl Downloader {
         res.join(until_upgrade)
       });
     }
-    tokio::runtime::current_thread::Runtime::new().unwrap().block_on(future).unwrap();
+    tokio::runtime::current_thread::Runtime::new().unwrap().block_on(future)?;
 
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = get_hash(&download_entry.file_path);
     if hash != download_entry.file_hash {
+      let mut state = self.state.lock().unwrap();
+      state.download_size.0 -= download_entry.file_size as u64;
+      drop(state);
       return Err(format!("File \"{}\"'s hash ({}) did not match with the one provided in Instructions.json ({})", &download_entry.file_path, &hash, &download_entry.file_hash).into());
     }
     Ok(())
   }
-  
-/*
- * Spawns magical unicorns, only usefull for testing
- */
+
+  ///
+  /// Spawns magical unicorns, only usefull for testing
+  ///
+  ///
   pub fn poll_progress(&self) {
     let state = self.state.clone();
     std::thread::spawn(move || {
       let mut finished_hash : bool;
       let mut finished_patching = false;
-      let mut old_time = std::time::Instant::now();
       let mut old_download_size : (u64, u64) = (0, 0);
       let mut old_patch_files : (u64, u64) = (0, 0);
       let mut old_hashes_checked : (u64, u64) = (0, 0);
@@ -660,6 +714,7 @@ impl Downloader {
         let download_size : (u64, u64) = state.download_size;
         let patch_files : (u64, u64) = state.patch_files;
         let hashes_checked : (u64, u64) = state.hashes_checked;
+        drop(state);
         if !finished_hash {
           if old_download_size != download_size {
             println!("Comparing files, total to be downloaded: {:.1} MB", (download_size.1 as f64)*0.000_001);
@@ -669,9 +724,7 @@ impl Downloader {
           }
         } else {
           if old_download_size != download_size {
-            let elapsed = old_time.elapsed();
-            old_time = std::time::Instant::now();
-            println!("Downloaded {:.1}/{:.1} MB, speed: {:.3} MB/s", (download_size.0 as f64)*0.000_001, (download_size.1 as f64)*0.000_001, ((download_size.0 - old_download_size.0) as f64)/(elapsed.as_micros() as f64));
+            println!("Downloaded {:.1}/{:.1} MB, speed: {}/s", (download_size.0 as f64)*0.000_001, (download_size.1 as f64)*0.000_001, convert((download_size.0 - old_download_size.0) as f64));
           }
           if patch_files != old_patch_files {
             println!("Patched {}/{} files", patch_files.0, patch_files.1);
@@ -684,9 +737,55 @@ impl Downloader {
     });
   }
 
+  ///
+  ///
+  ///
+  ///
   pub fn get_progress(&self) -> Arc<Mutex<Progress>> {
     self.state.clone()
   }
+}
+
+fn process_response<W: Write, F: FnMut(&mut W, &mut u64)>(res: hyper::Response<hyper::Body>, mut writer: downloader::BufWriter<W, F>, unlocked_state: Arc<Mutex<Progress>>, f: std::fs::File, trunc_size: u64) 
+-> impl Future<Item = Result<(), traits::Error>, Error = hyper::Error> {
+  use hyper::rt::*;
+  let abort_in_error = res.status() != 200 && res.status() != 206;
+
+  res.into_body().for_each(move |chunk| {
+    if !abort_in_error {
+      let ret = writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e));
+      let mut state = unlocked_state.lock().unwrap();
+      state.download_size.0 += chunk.len() as u64;
+      drop(state);
+      ret
+    } else {
+      let mut vec = Vec::new();
+      let ret = vec.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e));
+      ret
+    }
+  }).and_then(move |_| {
+    if !abort_in_error {
+      f.set_len(trunc_size).unwrap();
+      drop(f);
+      Ok(Ok(()))
+    } else {
+      Ok(Err("Unexpected response: found status code 200 or 206!".into()))
+    }
+  })
+}
+
+pub fn convert(num: f64) -> String {
+  let negative = if num.is_sign_positive() { "" } else { "-" };
+  let num = num.abs();
+  let units = ["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
+  if num < 1_f64 {
+    return format!("{}{} {}", negative, num, "B");
+  }
+  let delimiter = 1000_f64;
+  let exponent = std::cmp::min((num.ln() / delimiter.ln()).floor() as i32, (units.len() - 1) as i32);
+  let pretty_bytes = format!("{:.2}", num / delimiter.powi(exponent)).parse::<f64>().unwrap() * 1_f64;
+  let unit = units[exponent as usize];
+  format!("{}{} {}", negative, pretty_bytes, unit)
 }
 
 /*
@@ -696,42 +795,43 @@ impl Downloader {
  * | DeltaQueue | --> | apply patch to all files that match this Delta |
  * --------------     --------------------------------------------------
  */
-  fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<(), Error> {
-    let mut dir_path = patch_entry.target_path.clone();
-    dir_path.truncate(patch_entry.target_path.rfind('/').unwrap());
-    DirBuilder::new().recursive(true).create(dir_path).unwrap();
-    if patch_entry.has_source {
-      let source_path = format!("{}.vcdiff_src", &patch_entry.target_path);
-      std::fs::rename(&patch_entry.target_path, &source_path).unwrap();
-      xdelta::decode_file(Some(&source_path), &patch_entry.delta_path, &patch_entry.target_path);
-      std::fs::remove_file(&source_path).unwrap();
-    } else {
-      //there is supposed to be no source file, so make sure it doesn't exist either!
-      match std::fs::remove_file(&patch_entry.target_path) {
-        Ok(()) => (),
-        Err(_e) => ()
-      };
-      xdelta::decode_file(None, &patch_entry.delta_path, &patch_entry.target_path);
-    }
-    let hash = get_hash(&patch_entry.target_path);
-    if hash != patch_entry.target_hash {
-      return Err(format!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash).into());
-    }
-    let mut state = state.lock().unwrap();
-    state.patch_files.0 += 1;
-    Ok(())
+fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<(), Error> {
+  let mut dir_path = patch_entry.target_path.clone();
+  dir_path.truncate(patch_entry.target_path.rfind('/').unwrap());
+  DirBuilder::new().recursive(true).create(dir_path).unwrap();
+  if patch_entry.has_source {
+    let source_path = format!("{}.vcdiff_src", &patch_entry.target_path);
+    std::fs::rename(&patch_entry.target_path, &source_path).unwrap();
+    xdelta::decode_file(Some(&source_path), &patch_entry.delta_path, &patch_entry.target_path);
+    std::fs::remove_file(&source_path).unwrap();
+  } else {
+    //there is supposed to be no source file, so make sure it doesn't exist either!
+    match std::fs::remove_file(&patch_entry.target_path) {
+      Ok(()) => (),
+      Err(_e) => ()
+    };
+    xdelta::decode_file(None, &patch_entry.delta_path, &patch_entry.target_path);
   }
+  let hash = get_hash(&patch_entry.target_path);
+  if hash != patch_entry.target_hash {
+    return Err(format!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash).into());
+  }
+  let mut state = state.lock().unwrap();
+  state.patch_files.0 += 1;
+  drop(state);
+  Ok(())
+}
 
 
 /*
  * Opens a file and calculates it's SHA256 hash
  */
-  fn get_hash(file_path: &str) -> String {
-    let mut file = OpenOptions::new().read(true).open(file_path).unwrap();
-    let mut sha256 = Sha256::new();
-    std::io::copy(&mut file, &mut sha256).unwrap();
-    hex::encode_upper(sha256.result())
-  }
+fn get_hash(file_path: &str) -> String {
+  let mut file = OpenOptions::new().read(true).open(file_path).unwrap();
+  let mut sha256 = Sha256::new();
+  std::io::copy(&mut file, &mut sha256).unwrap();
+  hex::encode_upper(sha256.result())
+}
 
 #[cfg(test)]
 mod tests {

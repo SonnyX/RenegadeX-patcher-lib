@@ -46,12 +46,16 @@ impl<T> BorrowUnwrap<T> for Option<T> {
 
 #[derive(Debug)]
 pub struct Error {
-  details: String
+  details: String,
+  pub remove_mirror: bool
 }
 
 impl Error {
     pub const fn new(msg: String) -> Error {
-        Error { details: msg }
+        Error { 
+            details: msg,
+            remove_mirror: false
+        }
     }
 }
 
@@ -71,7 +75,19 @@ impl From<reqwest::Error> for Error {
   fn from(error: reqwest::Error) -> Self {
     use std::error::Error;
     Self {
-      details: error.description().to_string()
+      details: error.description().to_string(),
+      remove_mirror: false
+    }
+  }
+}
+
+impl From<hyper::Error> for Error {
+  fn from(error: hyper::Error) -> Self {
+    use std::error::Error;
+    println!("{:#?}", error);
+    Self {
+      details: error.description().to_string(),
+      remove_mirror: error.is_user()
     }
   }
 }
@@ -79,8 +95,17 @@ impl From<reqwest::Error> for Error {
 impl From<std::string::String> for Error {
   fn from(string: String) -> Self {
     Error {
-      details: string
+      details: string,
+      remove_mirror: false
     }
   }
 }
 
+impl From<&str> for Error {
+  fn from(string: &str) -> Self {
+    Error {
+      details: string.to_string(),
+      remove_mirror: true
+    }
+  }
+}
