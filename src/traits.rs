@@ -81,6 +81,16 @@ impl From<reqwest::Error> for Error {
   }
 }
 
+impl From<std::io::Error> for Error {
+  fn from(error: std::io::Error) -> Self {
+    use std::error::Error;
+    Self {
+      details: error.description().to_string(),
+      remove_mirror: false
+    }
+  }
+}
+
 impl From<hyper::Error> for Error {
   fn from(error: hyper::Error) -> Self {
     use std::error::Error;

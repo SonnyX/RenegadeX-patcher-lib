@@ -67,6 +67,74 @@ impl Progress {
 }
 
 #[derive(Debug)]
+struct Directory {
+  name: std::ffi::OsString,
+  subdirectories: Vec<Directory>,
+  files: Vec<std::path::PathBuf>,
+}
+
+impl Directory {
+  pub fn get_or_create_subdirectory(&mut self, name: std::ffi::OsString) -> &mut Directory {
+    for index in 0..self.subdirectories.len() {
+      if self.subdirectories[index].name == name {
+        return &mut self.subdirectories[index];
+      }
+    }
+    self.subdirectories.push(
+      Directory {
+        name: name,
+        subdirectories: Vec::new(),
+        files: Vec::new(), 
+      }
+    );
+    return self.subdirectories.last_mut().unwrap();
+  }
+
+  pub fn get_subdirectory(&self, name: std::ffi::OsString) -> Option<&Directory> {
+    for index in 0..self.subdirectories.len() {
+      if self.subdirectories[index].name == name {
+        return Some(&self.subdirectories[index]);
+      }
+    }
+    return None;
+  }
+
+  pub fn directory_exists(&self, path: std::path::PathBuf) -> bool {
+    //split up path into an iter and push it to temporary path's, if it's all done then we're good
+    let mut temp = self;
+    for directory in path.iter() {
+      temp = match temp.get_subdirectory(directory.to_owned()) {
+        Some(subdir) => subdir,
+        None => {
+          return false;
+        },
+      };
+    }
+    return true;
+  }
+
+  pub fn file_exists(&self, file: std::path::PathBuf) -> bool {
+    //split up path into an iter and push it to temporary path's, if it's all done then we're good
+    if file.file_name().unwrap() == "InstallInfo.xml" {
+      return true;
+    }
+    let mut temp = self;
+    let mut dir = file.clone();
+    dir.pop();
+    for directory in dir.iter() {
+      temp = match temp.get_subdirectory(directory.to_owned()) {
+        Some(subdir) => subdir,
+        None => {
+          return false;
+        },
+      };
+    }
+    return temp.files.contains(&file);
+  }
+
+}
+
+#[derive(Debug, Clone)]
 struct Instruction {
   path: String,
   old_hash: Option<String>,
@@ -239,6 +307,9 @@ impl Downloader {
     if self.mirrors.is_empty() {
       return Err("No mirrors found! Did you retrieve mirrors?".to_string().into());
     }
+    if !self.instructions.is_empty() {
+      return Ok(());
+    }
     let instructions_mutex : Mutex<String> = Mutex::new("".to_string());
     for retry in 0..3 {
       let mirror = self.mirrors.get_mirror();
@@ -272,7 +343,20 @@ impl Downloader {
       Ok(result) => result,
       Err(e) => return Err(format!("Invalid JSON: {}", e).into())
     };
-    self.process_instructions(instructions_data);
+    instructions_data.into_inner().iter().for_each(|instruction| {
+      let file_path = format!("{}{}", self.renegadex_location.borrow(), instruction["Path"].as_string().replace("\\", "/"));
+      self.instructions.push(Instruction {
+              path:                file_path,
+              old_hash:            instruction["OldHash"].as_string_option(),
+              new_hash:            instruction["NewHash"].as_string_option(),
+              compressed_hash:     instruction["CompressedHash"].as_string_option(),
+              delta_hash:          instruction["DeltaHash"].as_string_option(),
+              full_replace_size:   instruction["FullReplaceSize"].as_usize().unwrap(),
+              delta_size:          instruction["DeltaSize"].as_usize().unwrap(),
+              has_delta:           instruction["HasDelta"].as_bool().unwrap()
+            });
+    });
+    self.process_instructions();
     Ok(())
   }
 
@@ -294,58 +378,46 @@ impl Downloader {
    *                    ------------------------
    * 
    */
-  fn process_instructions(&self, instructions_data: json::JsonValue) {
-    instructions_data.into_inner().par_iter().for_each(|instruction| {
+  fn process_instructions(&self) {
+    self.instructions.par_iter().for_each(|instruction| {
       //lets start off by trying to open the file.
-      let file_path = format!("{}{}", self.renegadex_location.borrow(), instruction["Path"].as_string().replace("\\", "/"));
-      match OpenOptions::new().read(true).open(&file_path) {
+      match OpenOptions::new().read(true).open(&instruction.path) {
         Ok(_file) => {
-          if !instruction["NewHash"].is_null() {
+          if instruction.new_hash.is_some() {
             let mut hash_queue = self.hash_queue.lock().unwrap();
-            let hash_entry = Instruction {
-              path:                file_path,
-              old_hash:            instruction["OldHash"].as_string_option(),
-              new_hash:            instruction["NewHash"].as_string_option(),
-              compressed_hash:     instruction["CompressedHash"].as_string_option(),
-              delta_hash:          instruction["DeltaHash"].as_string_option(),
-              full_replace_size:   instruction["FullReplaceSize"].as_usize().unwrap(),
-              delta_size:          instruction["DeltaSize"].as_usize().unwrap(),
-              has_delta:           instruction["HasDelta"].as_bool().unwrap()
-            };
-            hash_queue.push(hash_entry);
+            hash_queue.push(instruction.clone());
             drop(hash_queue);
             let mut state = self.state.lock().unwrap();
             state.hashes_checked.1 += 1;
             drop(state);
           } else {
-            println!("Found entry {} that needs deleting.", file_path);
+            println!("Found entry {} that needs deleting.", instruction.path);
             //TODO: DeletionQueue, delete it straight away?
           }
         },
         Err(_e) => {
-          if !instruction["NewHash"].is_null() {
-            let key = instruction["NewHash"].as_string();
+          if let Some(key) = &instruction.new_hash {
             let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
             let mut download_hashmap = self.download_hashmap.lock().unwrap();
-            if !download_hashmap.contains_key(&key) {
+            if !download_hashmap.contains_key(key) {
               let download_entry = DownloadEntry {
                 file_path: delta_path.clone(),
-                file_size: instruction["FullReplaceSize"].as_usize().unwrap(),
-                file_hash: instruction["CompressedHash"].as_string(),
+                file_size: instruction.full_replace_size,
+                file_hash: instruction.compressed_hash.clone().unwrap(),
                 patch_entries: Vec::new(),
               };
               download_hashmap.insert(key.clone(), download_entry);
               let mut state = self.state.lock().unwrap();
-              state.download_size.1 += instruction["FullReplaceSize"].as_u64().unwrap();
+              state.download_size.1 += instruction.full_replace_size as u64;
               drop(state);
             }
             let patch_entry = PatchEntry {
-              target_path: file_path,
+              target_path: instruction.path.clone(),
               delta_path,
               has_source: false,
               target_hash: key.clone(),
             };
-            download_hashmap.get_mut(&key).unwrap().patch_entries.push(patch_entry); //should we add it to a downloadQueue??
+            download_hashmap.get_mut(key).unwrap().patch_entries.push(patch_entry); //should we add it to a downloadQueue??
             drop(download_hashmap);
             let mut state = self.state.lock().unwrap();
             state.patch_files.1 += 1;
@@ -354,6 +426,64 @@ impl Downloader {
         }
       };
     });
+  }
+
+  pub fn remove_unversioned(&mut self) -> Result<(), Error> {
+    if self.instructions.is_empty() {
+      self.retrieve_instructions()?;
+    }
+    let mut versioned_files = Directory {
+      name: "".into(),
+      subdirectories: Vec::new(),
+      files: Vec::new(),
+    };
+    let renegadex_path = std::path::PathBuf::from(self.renegadex_location.borrow());
+    for entry in self.instructions.iter() {
+      let mut path = &mut versioned_files;
+      let mut directory_iter = std::path::PathBuf::from(&entry.path).strip_prefix(&renegadex_path).unwrap().to_path_buf();
+      directory_iter.pop();
+      for directory in directory_iter.iter() {
+        path = path.get_or_create_subdirectory(directory.to_owned());
+      }
+      //path should be the correct directory now.
+      //thus add file to path.files
+      path.files.push(std::path::PathBuf::from(&entry.path).strip_prefix(&renegadex_path).unwrap().to_path_buf());
+    }
+    let files = std::fs::read_dir(&self.renegadex_location.borrow()).unwrap();
+    for file in files {
+      let file = file.unwrap();
+      if file.file_type().unwrap().is_dir() {
+        if versioned_files.directory_exists(file.path().strip_prefix(&renegadex_path).unwrap().to_owned()) {
+          self.read_dir(&file.path(), &versioned_files, &renegadex_path)?;
+        } else {
+          println!("Remove directory: {:?}", &file.path());
+        }
+      } else {
+        println!("Remove file: {:?}", &file.path());
+        //doubt antything
+      }
+    }
+    Ok(())
+  }
+
+  fn read_dir(&self, dir: &std::path::Path, versioned_files: &Directory, renegadex_path: &std::path::PathBuf) -> Result<(),Error> {
+    let files = std::fs::read_dir(dir).unwrap();
+    for file in files {
+      let file = file.unwrap();
+      if file.file_type().unwrap().is_dir() {
+        if versioned_files.directory_exists(file.path().strip_prefix(&renegadex_path).unwrap().to_owned()) {
+          self.read_dir(&file.path(), versioned_files, renegadex_path)?;
+        } else {
+          std::fs::remove_dir_all(&file.path())?;
+        }
+      } else {
+        if !versioned_files.file_exists(file.path().strip_prefix(&renegadex_path).unwrap().to_owned()) {
+          std::fs::remove_file(&file.path())?;
+        }
+        //doubt antything
+      }
+    }
+    Ok(())
   }
 
 /*
@@ -842,6 +972,7 @@ mod tests {
     patcher.set_location("C:/RenegadeX/".to_string());
     patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
     patcher.retrieve_mirrors().unwrap();
+    patcher.remove_unversioned().unwrap();
     match patcher.update_available().unwrap() {
       Update::UpToDate => {
         println!("Game up to date!");
