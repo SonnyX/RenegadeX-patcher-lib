@@ -276,14 +276,16 @@ impl Downloader {
   ///
   ///
   pub fn download(&mut self) -> Result<(), Error> {
-    if self.mirrors.is_empty() {
-      return Err("No mirrors found! Did you retrieve mirrors?".to_string().into());
-    }
+    let mut progress = self.state.lock().unwrap();
+    progress.update = Update::Unknown;
+    progress.hashes_checked = (0,0);
+    progress.download_size = (0,0);
+    progress.patch_files = (0,0);
+    progress.finished_hash = false;
+    progress.finished_patching = false;
+    drop(progress);
     if self.instructions.is_empty() {
       self.retrieve_instructions()?;
-    }
-    if self.mirrors.mirrors.len() < 3 {
-      return Err(format!("Not enough mirrors ({} out of 3) available!", self.mirrors.mirrors.len()).into());
     }
     println!("Retrieved instructions, checking hashes.");
     self.check_hashes();
