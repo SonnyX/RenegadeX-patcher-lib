@@ -284,9 +284,14 @@ impl Downloader {
     progress.finished_hash = false;
     progress.finished_patching = false;
     drop(progress);
+    self.download_hashmap = Mutex::new(BTreeMap::new());
+    self.hash_queue = Mutex::new(Vec::new());
+    self.patch_queue = Arc::new(Mutex::new(Vec::new()));
+
     if self.instructions.is_empty() {
       self.retrieve_instructions()?;
     }
+    self.process_instructions();
     println!("Retrieved instructions, checking hashes.");
     self.check_hashes();
     let child_process = self.check_patch_queue();
@@ -301,9 +306,9 @@ impl Downloader {
   
   /*
    * Downloads instructions.json from a mirror, checks its validity and passes it on to process_instructions()
-   * -------------------------      ------------  par   ------------------------
-   * | retrieve_instructions |  --> | Get Json | ---->  | process_instructions | 
-   * -------------------------      ------------        ------------------------
+   * -------------------------      ------------
+   * | retrieve_instructions |  --> | Get Json |
+   * -------------------------      ------------
   */
   fn retrieve_instructions(&mut self) -> Result<(), Error> {
     if self.mirrors.is_empty() {
@@ -358,7 +363,6 @@ impl Downloader {
               has_delta:           instruction["HasDelta"].as_bool().unwrap()
             });
     });
-    self.process_instructions();
     Ok(())
   }
 
