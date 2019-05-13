@@ -33,10 +33,20 @@ impl ToSocketAddrs for SocketAddrs {
   }
 }
 
+#[derive(Clone)]
+pub struct LauncherInfo {
+  pub version_name: String,
+  pub version_number: usize,
+  pub patch_url: String,
+  pub patch_hash: String,
+  pub prompted: bool,
+}
+
 pub struct Mirrors {
   pub mirrors: Vec<Mirror>,
   pub instructions_hash: Option<String>,
   pub version_number: Option<String>,
+  pub launcher_info: Option<LauncherInfo>,
 }
 
 impl Mirrors {
@@ -45,6 +55,7 @@ impl Mirrors {
       mirrors: Vec::new(),
       instructions_hash: None,
       version_number: None,
+      launcher_info: None,
     }
   }
 
@@ -81,6 +92,13 @@ impl Mirrors {
       Ok(result) => result,
       Err(e) => return Err(format!("mirrors.rs: Invalid JSON: {}", e).into())
     };
+    self.launcher_info = Some(LauncherInfo {
+      version_name: release_data["launcher"]["version_name"].as_string(),
+      version_number: release_data["launcher"]["version_number"].as_usize().unwrap(),
+      patch_url: release_data["launcher"]["patch_url"].as_string(),
+      patch_hash: release_data["launcher"]["patch_hash"].as_string(),
+      prompted: false,
+    });
     let mut mirror_vec = Vec::with_capacity(release_data["game"]["mirrors"].len());
     release_data["game"]["mirrors"].members().for_each(|mirror| mirror_vec.push(mirror["url"].as_string()) );
     for mirror in mirror_vec {

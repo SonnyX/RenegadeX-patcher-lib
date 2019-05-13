@@ -193,6 +193,10 @@ impl Downloader {
     }
   }
 
+  pub fn get_launcher_info(&self) -> Option<mirrors::LauncherInfo> {
+    self.mirrors.launcher_info.clone()
+  }
+
   ///
   ///
   ///
