@@ -193,8 +193,10 @@ impl Downloader {
     }
   }
 
-  pub fn get_launcher_info(&self) -> Option<mirrors::LauncherInfo> {
-    self.mirrors.launcher_info.clone()
+  pub fn get_launcher_info(&mut self) -> Option<mirrors::LauncherInfo> {
+    let ret = self.mirrors.launcher_info.clone();
+    self.mirrors.launcher_info.as_mut().unwrap().prompted = true;
+    ret
   }
 
   ///
@@ -652,7 +654,6 @@ impl Downloader {
   ///
   fn download_and_patch(&self, key: &str, download_entry: &DownloadEntry) -> Result<(), Error> {
     for attempt in 0..5 {
-      //TODO add in a random number generator in order to balance the load between the mirrors
       let mirror = self.mirrors.get_mirror();
       let download_url = match download_entry.patch_entries[0].has_source {
         true => format!("{}/delta/{}", &mirror.address, &key),
