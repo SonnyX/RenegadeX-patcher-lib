@@ -195,7 +195,9 @@ impl Downloader {
 
   pub fn get_launcher_info(&mut self) -> Option<mirrors::LauncherInfo> {
     let ret = self.mirrors.launcher_info.clone();
-    self.mirrors.launcher_info.as_mut().unwrap().prompted = true;
+    if ret.is_some() {
+      self.mirrors.launcher_info.as_mut().unwrap().prompted = true;
+    }
     ret
   }
 
@@ -788,7 +790,7 @@ impl Downloader {
       }
     };
 
-    let mut future;
+    let future;
     {
       let unlocked_state = self.state.clone();
       let mut writer = BufWriter::new(f.try_clone().unwrap(), move | writer, total_written | {
@@ -820,9 +822,12 @@ impl Downloader {
         });
 
         res.join(until_upgrade)
+      }).and_then(move |(result, client)| {
+        drop(client);
+        Ok(result)
       });
     }
-    tokio::runtime::current_thread::Runtime::new().unwrap().block_on(future)?;
+    tokio::runtime::current_thread::Runtime::new().unwrap().block_on(future)??;
 
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = get_hash(&download_entry.file_path);
