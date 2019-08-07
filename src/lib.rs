@@ -461,7 +461,9 @@ impl Downloader {
       }
       //path should be the correct directory now.
       //thus add file to path.files
-      path.files.push(std::path::PathBuf::from(&entry.path).strip_prefix(&renegadex_path).unwrap().to_path_buf());
+      if entry.new_hash.is_some() {
+        path.files.push(std::path::PathBuf::from(&entry.path).strip_prefix(&renegadex_path).unwrap().to_path_buf());
+      }
     }
     let files = std::fs::read_dir(&self.renegadex_location.borrow()).unwrap();
     for file in files {
@@ -488,10 +490,12 @@ impl Downloader {
         if versioned_files.directory_exists(file.path().strip_prefix(&renegadex_path).unwrap().to_owned()) {
           self.read_dir(&file.path(), versioned_files, renegadex_path)?;
         } else {
+          println!("Removing directory: {:?}", &file.path());
           std::fs::remove_dir_all(&file.path())?;
         }
       } else {
         if !versioned_files.file_exists(file.path().strip_prefix(&renegadex_path).unwrap().to_owned()) {
+          println!("Removing file: {:?}", &file.path());
           std::fs::remove_file(&file.path())?;
         }
         //doubt antything
