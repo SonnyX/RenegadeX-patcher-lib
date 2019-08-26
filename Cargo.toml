@@ -5,19 +5,21 @@ authors = ["SonnyX"]
 edition = "2018"
 
 [dependencies]
-reqwest = "0.9.5"
 json = "0.11.13"
 sha2 = "0.8.0"
 hex = "0.3.2"
 rust-ini = "0.13.0"
 rayon = "1.0.3"
-rand = "0.6.5"
+rand = "0.7.0"
 xdelta = { git = "https://github.com/SonnyX/xdelta-decoder-rust.git" }
 num_cpus = "1.10.0"
 hyper = "0.12.27"
+hyper-tls = "^0.3.2"
+native-tls = "^0.2"
+http = "*"
 tokio = "0.1.18"
 tokio-reactor = "0.1.9"
-url = "1.7.2"
+url = "2.1.0"
 futures = "0.1.27"
 
 [profile.test]

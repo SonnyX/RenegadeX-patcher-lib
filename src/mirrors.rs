@@ -1,5 +1,5 @@
 use std::time::{Duration, Instant};
-
+use crate::downloader::download_file;
 use crate::traits::{AsString,Error};
 use std::sync::{Arc, Mutex};
 use std::net::ToSocketAddrs;
@@ -18,10 +18,10 @@ pub struct SocketAddrs {
   inner: Vec<std::net::SocketAddr>
 }
 
-impl From<url::SocketAddrs> for SocketAddrs {
-  fn from(other: url::SocketAddrs) -> Self {
+impl From<Vec<std::net::SocketAddr>> for SocketAddrs {
+  fn from(other: Vec<std::net::SocketAddr>) -> Self {
     SocketAddrs {
-      inner: other.collect()
+      inner: other
     }
   }
 }
@@ -73,14 +73,14 @@ impl Mirrors {
 
   pub fn disable(&self, entry: usize) {
     let mirrors = self.mirrors[entry].enabled.clone();
-    *mirrors.lock().unwrap() = false;
+    *mirrors.lock().expect(concat!(module_path!(),":",file!(),":",line!())) = false;
   }
 
   /**
   Downloads release.json from the renegade-x server and adds it to the struct
   */
   pub fn get_mirrors(&mut self, location: &str) -> Result<(), Error> {
-    let mut release_json = match reqwest::get(location) {
+    let mut release_json = match download_file(location.to_string(), Duration::from_secs(10)) {
       Ok(result) => result,
       Err(e) => return Err(format!("Is your internet down? {}", e).into())
     };
@@ -94,7 +94,7 @@ impl Mirrors {
     };
     self.launcher_info = Some(LauncherInfo {
       version_name: release_data["launcher"]["version_name"].as_string(),
-      version_number: release_data["launcher"]["version_number"].as_usize().unwrap(),
+      version_number: release_data["launcher"]["version_number"].as_usize().expect(concat!(module_path!(),":",file!(),":",line!())),
       patch_url: release_data["launcher"]["patch_url"].as_string(),
       patch_hash: release_data["launcher"]["patch_hash"].as_string(),
       prompted: false,
@@ -102,18 +102,19 @@ impl Mirrors {
     let mut mirror_vec = Vec::with_capacity(release_data["game"]["mirrors"].len());
     release_data["game"]["mirrors"].members().for_each(|mirror| mirror_vec.push(mirror["url"].as_string()) );
     for mirror in mirror_vec {
+      let url = mirror.parse::<url::Url>().expect(concat!(module_path!(),":",file!(),":",line!()));
       self.mirrors.push(Mirror{
         address: Arc::new(format!("{}{}", &mirror, release_data["game"]["patch_path"].as_string())),
-        ip: mirror.parse::<url::Url>().unwrap().to_socket_addrs().unwrap().into(),
-        speed: 80.0,
-        ping: 500.0,
+        ip: url.socket_addrs(|| None).expect(concat!(module_path!(),":",file!(),":",line!())).into(),
+        speed: 1.0,
+        ping: 1000.0,
         enabled: Arc::new(Mutex::new(false)),
       });
     }
     self.test_mirrors()?;
     println!("{:#?}", &self.mirrors);
     self.instructions_hash = Some(release_data["game"]["instructions_hash"].as_string());
-    self.version_number = Some(release_data["game"]["version_number"].as_u64().unwrap().to_string());
+    self.version_number = Some(release_data["game"]["version_number"].as_u64().expect(concat!(module_path!(),":",file!(),":",line!())).to_string());
     Ok(())
   }
 
@@ -121,7 +122,7 @@ impl Mirrors {
   pub fn get_mirror(&self) -> Mirror {
     for i in 0..20 {
       for mirror in self.mirrors.iter() {
-        if *mirror.enabled.lock().unwrap() && Arc::strong_count(&mirror.address) == i {
+        if *mirror.enabled.lock().expect(concat!(module_path!(),":",file!(),":",line!())) && Arc::strong_count(&mirror.address) == i {
           println!("i: {}, mirror: {}", i, &mirror.address);
           return mirror.clone();
         }
@@ -139,18 +140,16 @@ impl Mirrors {
       let mirror = self.mirrors[i].clone();
       let fastest_mirror_speed = self.mirrors[0].speed;
       handles.push(std::thread::spawn(move || -> Mirror {
-        let mut url = format!("{}", mirror.address.to_owned());
-        url.truncate(url.rfind('/').unwrap() + 1);
-        let http_client = reqwest::Client::builder().timeout(Duration::from_millis(10000/fastest_mirror_speed as u64 * 4)).build().unwrap();
-        url.push_str("10kb_file");
-        let download_request = http_client.get(url.as_str());
         let start = Instant::now();
-        let download_response = download_request.send();
+        let mut url = format!("{}", mirror.address.to_owned());
+        url.truncate(url.rfind('/').expect(concat!(module_path!(),":",file!(),":",line!())) + 1);
+        url.push_str("10kb_file");
+        let download_response = download_file(url, Duration::from_millis(10_000/fastest_mirror_speed as u64 * 4));
         match download_response {
           Ok(result) => {
             let duration = start.elapsed();
             let content_length = result.headers().get("content-length");
-            if content_length.is_none() || content_length.unwrap() != "10000" {
+            if content_length.is_none() || content_length.expect(concat!(module_path!(),":",file!(),":",line!())) != "10000" {
               Mirror { 
                 address: mirror.address,
                 ip: mirror.ip,
@@ -190,7 +189,7 @@ impl Mirrors {
       }
     }
     if self.mirrors.len() > 1 {
-      self.mirrors.sort_by(|a,b| b.speed.partial_cmp(&a.speed).unwrap());
+      self.mirrors.sort_by(|a,b| b.speed.partial_cmp(&a.speed).expect(concat!(module_path!(),":",file!(),":",line!())));
       let best_speed = self.mirrors[0].speed;
       for mut elem in self.mirrors.iter_mut() {
         if elem.speed < best_speed / 4.0 {

@@ -1,5 +1,72 @@
 use std::io::prelude::*; 
-use std::io::{self, Error, ErrorKind, SeekFrom}; 
+use std::io::{self, SeekFrom};
+use crate::futures::Future;
+use futures::future::ok;
+use std::time::Duration;
+use crate::futures::Stream;
+use crate::traits::Error;
+
+/// A Response to a submitted `Request`.
+pub struct Response {
+    parts: http::response::Parts,
+    body: hyper::Chunk,
+}
+impl Response {
+  pub fn new(parts: http::response::Parts, body: hyper::Chunk) -> Self {
+    Self {
+      parts,
+      body
+    }
+  }
+
+  pub fn headers(&self) -> &http::HeaderMap {
+    &self.parts.headers
+  }
+
+  pub fn text(&mut self) -> Result<String, std::string::FromUtf8Error> {
+    String::from_utf8(self.body.to_vec())
+  }
+}
+
+impl AsRef<[u8]> for Response {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.body.as_ref()
+    }
+}
+
+pub fn download_file(url: String, timeout: Duration) -> Result<Response, Error> {
+  if url.contains("http://") {
+    let client = hyper::Client::new();
+    let url = url.parse::<hyper::Uri>()?;
+    let mut req = hyper::Request::builder();
+    req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
+    let req = req.body(hyper::Body::empty())?;
+    let res = tokio::timer::Timeout::new(client.request(req).and_then(|res| {
+      let parts = res.into_parts();
+      Future::join(ok::<http::response::Parts, hyper::Error>(parts.0),parts.1.concat2())
+    }), timeout);
+    let mut rt = tokio::runtime::current_thread::Runtime::new()?;
+    let result = rt.block_on(res)?;
+    Ok(Response::new(result.0, result.1))
+  } else if url.contains("https://") {
+    let https = hyper_tls::HttpsConnector::new(4).expect("TLS initialization failed");
+    let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+    let url = url.parse::<hyper::Uri>()?;
+    let mut req = hyper::Request::builder();
+    req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
+    let req = req.body(hyper::Body::empty())?;
+    let res = tokio::timer::Timeout::new(client.request(req).and_then(|res| {
+      let parts = res.into_parts();
+      Future::join(ok::<http::response::Parts, hyper::Error>(parts.0),parts.1.concat2())
+    }), timeout);
+    let mut rt = tokio::runtime::current_thread::Runtime::new()?;
+    let result = rt.block_on(res)?;
+    Ok(Response::new(result.0, result.1))
+  } else {
+    Err(Error::new(format!("Unknown file format: {}", url)))
+  }
+}
 
 pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64)> {
     inner: Option<W>,
@@ -41,11 +108,11 @@ impl<W: Write, F: FnMut(&mut W, &mut u64)> BufWriter<W, F> {
 
             match r {
                 Ok(0) => {
-                    ret = Err(Error::new(ErrorKind::WriteZero, "failed to write the buffered data"));
+                    ret = Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "failed to write the buffered data"));
                     break;
                 }
                 Ok(n) => written += n,
-                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(e) => { ret = Err(e); break }
 
             }
