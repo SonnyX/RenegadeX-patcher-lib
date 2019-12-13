@@ -84,6 +84,17 @@ impl From<std::io::Error> for Error {
   }
 }
 
+impl From<tokio::time::Elapsed> for Error {
+  #[inline(always)]
+  fn from(error: tokio::time::Elapsed) -> Self {
+    use std::error::Error;
+    Self {
+      details: error.description().to_string(),
+      remove_mirror: true
+    }
+  }
+}
+
 impl From<std::string::FromUtf8Error> for Error {
   #[inline(always)]
   fn from(error: std::string::FromUtf8Error) -> Self {
@@ -95,6 +106,7 @@ impl From<std::string::FromUtf8Error> for Error {
   }
 }
 
+/*
 impl From<tokio::timer::timeout::Error<hyper::Error>> for Error {
   #[inline(always)]
   fn from(error: tokio::timer::timeout::Error<hyper::Error>) -> Self {
@@ -105,7 +117,7 @@ impl From<tokio::timer::timeout::Error<hyper::Error>> for Error {
     }
   }
 }
-
+*/
 impl From<http::Error> for Error {
   #[inline(always)]
   fn from(error: http::Error) -> Self {

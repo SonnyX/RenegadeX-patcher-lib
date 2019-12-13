@@ -5,13 +5,14 @@ extern crate ini;
 extern crate hex;
 extern crate num_cpus;
 extern crate hyper;
-#[macro_use] extern crate futures;
+extern crate futures;
 extern crate tokio;
 extern crate url;
-extern crate tokio_reactor;
+//extern crate tokio_reactor;
 extern crate http;
 
 //Standard library
+use crate::futures::StreamExt;
 use std::collections::BTreeMap;
 use std::fs::{OpenOptions,DirBuilder};
 use std::io::{Read, Write, Seek, SeekFrom};
@@ -33,7 +34,7 @@ use traits::{AsString, BorrowUnwrap, Error};
 use rayon::prelude::*;
 use ini::Ini;
 use sha2::{Sha256, Digest};
-use hyper::rt::Future;
+use http_body::Body;
 
 #[derive(Clone)]
 pub struct Progress {
@@ -470,6 +471,10 @@ impl Downloader {
         path.files.push(std::path::PathBuf::from(&entry.path).strip_prefix(&renegadex_path).expect(concat!(module_path!(),":",file!(),":",line!())).to_path_buf());
       }
     }
+    match std::fs::read_dir(&self.renegadex_location.borrow()) {
+      Ok(_) => {},
+      Err(_) => std::fs::create_dir_all(&self.renegadex_location.borrow()).expect(concat!(module_path!(),":",file!(),":",line!()))
+    }
     let files = std::fs::read_dir(&self.renegadex_location.borrow()).expect(concat!(module_path!(),":",file!(),":",line!()));
     for file in files {
       let file = file.expect(concat!(module_path!(),":",file!(),":",line!()));
@@ -799,44 +804,8 @@ impl Downloader {
       }
     };
 
-    let future;
-    {
-      let unlocked_state = self.state.clone();
-      let mut writer = BufWriter::new(f.try_clone().expect(concat!(module_path!(),":",file!(),":",line!())), move | writer, total_written | {
-        //When the buffer is being written to file, this closure gets executed
-        let parts = *total_written / part_size as u64;
-        writer.seek(SeekFrom::End(-4)).expect(concat!(module_path!(),":",file!(),":",line!()));
-        writer.write_all(&(parts as u32).to_be_bytes()).expect(concat!(module_path!(),":",file!(),":",line!()));
-        writer.seek(SeekFrom::Start(*total_written)).expect(concat!(module_path!(),":",file!(),":",line!()));
-      });
-      writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).expect(concat!(module_path!(),":",file!(),":",line!()));
-
-      let url = download_url.parse::<hyper::Uri>().expect(concat!(module_path!(),":",file!(),":",line!()));
-      let trunc_size = download_entry.file_size as u64;
-      future = tokio::net::TcpStream::from_std(std::net::TcpStream::connect(&mirror.ip).expect(concat!(module_path!(),":",file!(),":",line!())), &tokio_reactor::Handle::default()).map(|tcp| {
-        hyper::client::conn::handshake(tcp)
-      }).expect(concat!(module_path!(),":",file!(),":",line!())).and_then(move |(mut client, conn)| {
-        let mut req = hyper::Request::builder();
-        req.uri(url.path()).header("host", url.host().expect(concat!(module_path!(),":",file!(),":",line!()))).header("User-Agent", "sonny-launcher/1.0");
-        if resume_part != 0 {
-          req.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
-        };
-        let req = req.body(hyper::Body::empty()).expect(concat!(module_path!(),":",file!(),":",line!()));
-        let res = client.send_request(req).and_then(move |res| process_response(res, writer, unlocked_state, f, trunc_size));
-        // Put in an Option so poll_fn can return it later
-        let mut conn = Some(conn);
-        let until_upgrade = futures::future::poll_fn(move || {
-          try_ready!(conn.as_mut().expect(concat!(module_path!(),":",file!(),":",line!())).poll_without_shutdown());
-          Ok(futures::Async::Ready(conn.take().expect(concat!(module_path!(),":",file!(),":",line!()))))
-        });
-
-        res.join(until_upgrade)
-      }).and_then(move |(result, client)| {
-        drop(client);
-        Ok(result)
-      });
-    }
-    tokio::runtime::current_thread::Runtime::new().expect(concat!(module_path!(),":",file!(),":",line!())).block_on(future)??;
+    self.get_file(&mirror, f, &download_url, resume_part, part_size, &download_entry)?;
+    //tokio::runtime::current_thread::Runtime::new().expect(concat!(module_path!(),":",file!(),":",line!())).block_on(future)??;
 
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = get_hash(&download_entry.file_path);
@@ -847,6 +816,72 @@ impl Downloader {
       return Err(format!("File \"{}\"'s hash ({}) did not match with the one provided in Instructions.json ({})", &download_entry.file_path, &hash, &download_entry.file_hash).into());
     }
     Ok(())
+  }
+
+  fn get_file(&self, mirror: &Mirror, f: std::fs::File, download_url: &str, resume_part: usize, part_size: usize, download_entry: &DownloadEntry ) -> Result<(), traits::Error> {
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let unlocked_state = self.state.clone();
+    let mut writer = BufWriter::new(f.try_clone().expect(concat!(module_path!(),":",file!(),":",line!())), move | writer, total_written | {
+      //When the buffer is being written to file, this closure gets executed
+      let parts = *total_written / part_size as u64;
+      writer.seek(SeekFrom::End(-4)).expect(concat!(module_path!(),":",file!(),":",line!()));
+      writer.write_all(&(parts as u32).to_be_bytes()).expect(concat!(module_path!(),":",file!(),":",line!()));
+      writer.seek(SeekFrom::Start(*total_written)).expect(concat!(module_path!(),":",file!(),":",line!()));
+    });
+    writer.seek(SeekFrom::Start((part_size * resume_part) as u64))?;
+
+    let url = download_url.parse::<hyper::Uri>()?;
+    let trunc_size = download_entry.file_size as u64;
+
+    let mut req = hyper::Request::builder();
+    req = req.uri(url.path()).header("host", url.host().expect(concat!(module_path!(),":",file!(),":",line!()))).header("User-Agent", "sonny-launcher/1.0");
+    if resume_part != 0 {
+      req = req.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
+    };
+    let req = req.body(hyper::Body::empty())?;
+    let ip = mirror.ip.clone();
+    let result = rt.enter(|| {
+      rt.spawn(async move {
+        let tcp = tokio::net::TcpStream::from_std(std::net::TcpStream::connect(ip)?)?;
+        let (mut client, conn) = hyper::client::conn::handshake(tcp).await?;
+          let future = async {
+            let res = client.send_request(req).await?;
+            let status = res.status();
+            let mut abort_in_error = status != 200 && status != 206;
+            let mut body = res.into_body();
+            while !body.is_end_stream() && !abort_in_error {
+              let chunk = body.next().await.unwrap_or_else(|| {
+                abort_in_error = true; 
+                Ok(hyper::body::Bytes::new())
+              });
+              let chunk = match chunk {
+                Ok(value) => value,
+                Err(_) => {
+                  abort_in_error = true;
+                  hyper::body::Bytes::new()
+                }
+              };
+              writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e)).unwrap();
+              let mut state = unlocked_state.lock().expect(concat!(module_path!(),":",file!(),":",line!()));
+              state.download_size.0 += chunk.len() as u64;
+              drop(state);
+            }
+            if !abort_in_error {
+              f.set_len(trunc_size).expect(concat!(module_path!(),":",file!(),":",line!()));
+              drop(f);
+              Ok(())
+            } else {
+              Err(format!("Unexpected response: found status code {}!", status).into())
+            }
+          };
+          let (result, client) = futures::join!(future, conn.without_shutdown());
+    
+          drop(client);
+          result
+      })
+    });
+    let result = rt.block_on(result).unwrap();
+    result
   }
 
   ///
@@ -899,34 +934,6 @@ impl Downloader {
   pub fn get_progress(&self) -> Arc<Mutex<Progress>> {
     self.state.clone()
   }
-}
-
-fn process_response<W: Write, F: FnMut(&mut W, &mut u64)>(res: hyper::Response<hyper::Body>, mut writer: downloader::BufWriter<W, F>, unlocked_state: Arc<Mutex<Progress>>, f: std::fs::File, trunc_size: u64) 
--> impl Future<Item = Result<(), traits::Error>, Error = hyper::Error> {
-  use hyper::rt::*;
-  let abort_in_error = res.status() != 200 && res.status() != 206;
-
-  res.into_body().for_each(move |chunk| {
-    if !abort_in_error {
-      let ret = writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e));
-      let mut state = unlocked_state.lock().expect(concat!(module_path!(),":",file!(),":",line!()));
-      state.download_size.0 += chunk.len() as u64;
-      drop(state);
-      ret
-    } else {
-      let mut vec = Vec::new();
-      let ret = vec.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e));
-      ret
-    }
-  }).and_then(move |_| {
-    if !abort_in_error {
-      f.set_len(trunc_size).expect(concat!(module_path!(),":",file!(),":",line!()));
-      drop(f);
-      Ok(Ok(()))
-    } else {
-      Ok(Err("Unexpected response: found status code 200 or 206!".into()))
-    }
-  })
 }
 
 pub fn convert(num: f64) -> String {
@@ -990,21 +997,21 @@ fn get_hash(file_path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+
   #[test]
-  fn downloader() {
-    let mut patcher : Downloader = Downloader::new();
+   fn downloader() {
+    let mut patcher : super::Downloader = super::Downloader::new();
     patcher.set_location("C:/RenegadeX/".to_string());
     patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
     patcher.retrieve_mirrors().expect(concat!(module_path!(),":",file!(),":",line!()));
     patcher.remove_unversioned().expect(concat!(module_path!(),":",file!(),":",line!()));
     match patcher.update_available().expect(concat!(module_path!(),":",file!(),":",line!())) {
-      Update::UpToDate => {
+      super::Update::UpToDate => {
         println!("Game up to date!");
         patcher.poll_progress();
         patcher.download().expect(concat!(module_path!(),":",file!(),":",line!()));
       },
-      Update::Resume | Update::Delta | Update::Full | Update::Unknown => {
+      super::Update::Resume | super::Update::Delta | super::Update::Full | super::Update::Unknown => {
         println!("Update available!");
         patcher.poll_progress();
         patcher.download().expect(concat!(module_path!(),":",file!(),":",line!()));

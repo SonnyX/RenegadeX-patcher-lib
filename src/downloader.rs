@@ -1,18 +1,16 @@
 use std::io::prelude::*; 
 use std::io::{self, SeekFrom};
-use crate::futures::Future;
-use futures::future::ok;
 use std::time::Duration;
-use crate::futures::Stream;
 use crate::traits::Error;
+use crate::futures::StreamExt;
 
 /// A Response to a submitted `Request`.
 pub struct Response {
     parts: http::response::Parts,
-    body: hyper::Chunk,
+    body: Vec<u8>,
 }
 impl Response {
-  pub fn new(parts: http::response::Parts, body: hyper::Chunk) -> Self {
+  pub fn new(parts: http::response::Parts, body: Vec<u8>) -> Self {
     Self {
       parts,
       body
@@ -24,7 +22,7 @@ impl Response {
   }
 
   pub fn text(&mut self) -> Result<String, std::string::FromUtf8Error> {
-    String::from_utf8(self.body.to_vec())
+    String::from_utf8(self.body.clone())
   }
 }
 
@@ -35,33 +33,68 @@ impl AsRef<[u8]> for Response {
     }
 }
 
-pub fn download_file(url: String, timeout: Duration) -> Result<Response, Error> {
+ pub fn download_file(url: String, timeout: Duration) -> Result<Response, Error> {
   if url.contains("http://") {
-    let client = hyper::Client::new();
-    let url = url.parse::<hyper::Uri>()?;
-    let mut req = hyper::Request::builder();
-    req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
-    let req = req.body(hyper::Body::empty())?;
-    let res = tokio::timer::Timeout::new(client.request(req).and_then(|res| {
-      let parts = res.into_parts();
-      Future::join(ok::<http::response::Parts, hyper::Error>(parts.0),parts.1.concat2())
-    }), timeout);
-    let mut rt = tokio::runtime::current_thread::Runtime::new()?;
-    let result = rt.block_on(res)?;
+    let mut rt = tokio::runtime::Builder::new()
+    .basic_scheduler()
+    .enable_time()
+    .enable_io()
+    .build()
+    .unwrap();
+    let url : hyper::Uri = url.parse::<hyper::Uri>()?;
+    let result : tokio::task::JoinHandle<std::result::Result<std::result::Result<(http::response::Parts, std::vec::Vec<u8>), Error>, tokio::time::Elapsed>> = rt.enter(|| {
+        rt.spawn(
+            tokio::time::timeout(timeout,
+            async move {
+                let client = hyper::Client::new();
+                let req = hyper::Request::builder();
+                let req = req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
+                let req = req.body(hyper::Body::empty())?;
+                let response : hyper::Response<hyper::Body> = client.request(req).await?;
+                let mut parts = response.into_parts();
+                let mut body = vec![];
+                let mut is_some = true;
+                while is_some {
+                    let option = parts.1.next().await;
+                    is_some = option.is_some();
+                    if is_some {
+                        body.append(&mut option.unwrap().unwrap().to_vec());
+                    }
+                }
+                Ok((parts.0, body))
+            })
+        )
+    });
+    let result = rt.block_on(result).unwrap().unwrap()?;
     Ok(Response::new(result.0, result.1))
   } else if url.contains("https://") {
-    let https = hyper_tls::HttpsConnector::new(4).expect("TLS initialization failed");
-    let client = hyper::Client::builder().build::<_, hyper::Body>(https);
-    let url = url.parse::<hyper::Uri>()?;
-    let mut req = hyper::Request::builder();
-    req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
-    let req = req.body(hyper::Body::empty())?;
-    let res = tokio::timer::Timeout::new(client.request(req).and_then(|res| {
-      let parts = res.into_parts();
-      Future::join(ok::<http::response::Parts, hyper::Error>(parts.0),parts.1.concat2())
-    }), timeout);
-    let mut rt = tokio::runtime::current_thread::Runtime::new()?;
-    let result = rt.block_on(res)?;
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let url : hyper::Uri = url.parse::<hyper::Uri>()?;
+    let result : tokio::task::JoinHandle<std::result::Result<std::result::Result<(http::response::Parts, std::vec::Vec<u8>), Error>, tokio::time::Elapsed>> = rt.enter(|| {
+        rt.spawn(
+            tokio::time::timeout(timeout,
+            async move {
+                let https = hyper_tls::HttpsConnector::new();
+                let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+                let req = hyper::Request::builder();
+                let req = req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
+                let req = req.body(hyper::Body::empty())?;
+                let response : hyper::Response<hyper::Body> = client.request(req).await?;
+                let mut parts = response.into_parts();
+                let mut body = vec![];
+                let mut is_some = true;
+                while is_some {
+                    let option = parts.1.next().await;
+                    is_some = option.is_some();
+                    if is_some {
+                        body.append(&mut option.unwrap().unwrap().to_vec());
+                    }
+                }
+                Ok((parts.0, body))
+            })
+        )
+    });
+    let result = rt.block_on(result).unwrap().unwrap()?;
     Ok(Response::new(result.0, result.1))
   } else {
     Err(Error::new(format!("Unknown file format: {}", url)))
