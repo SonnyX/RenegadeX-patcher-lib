@@ -1,8 +1,14 @@
 use std::time::{Duration, Instant};
-use crate::downloader::download_file;
-use crate::traits::{AsString,Error};
 use std::sync::{Arc, Mutex};
 use std::net::ToSocketAddrs;
+use std::pin::Pin;
+use std::task::Poll;
+use std::future::Future;
+
+use crate::downloader::download_file;
+use crate::traits::{AsString,Error};
+use hyper::client::connect::dns::Name;
+
 
 #[derive(Debug, Clone)]
 pub struct Mirror {
@@ -13,15 +19,21 @@ pub struct Mirror {
   pub ip: SocketAddrs,//Vec<std::net::SocketAddr>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct SocketAddrs {
-  inner: Vec<std::net::SocketAddr>
+  inner: std::vec::IntoIter<std::net::SocketAddr>
+}
+
+impl PartialEq for SocketAddrs {
+  fn eq(&self, other: &SocketAddrs) -> bool {
+    self.inner.as_slice() == other.inner.as_slice()
+  }
 }
 
 impl From<Vec<std::net::SocketAddr>> for SocketAddrs {
   fn from(other: Vec<std::net::SocketAddr>) -> Self {
     SocketAddrs {
-      inner: other
+      inner: other.into_iter()
     }
   }
 }
@@ -29,7 +41,48 @@ impl From<Vec<std::net::SocketAddr>> for SocketAddrs {
 impl ToSocketAddrs for SocketAddrs {
   type Iter = std::vec::IntoIter<std::net::SocketAddr>;
   fn to_socket_addrs(&self) -> std::io::Result<std::vec::IntoIter<std::net::SocketAddr>> {
-    Ok(self.inner.clone().into_iter())
+    Ok(self.inner.clone())
+  }
+}
+
+#[derive(Clone)]
+pub struct ResolverService {
+  pub socket_addrs: SocketAddrs
+}
+
+impl ResolverService {
+  pub fn new(socket_addrs: SocketAddrs) -> Self {
+    ResolverService {
+      socket_addrs
+    }
+  }
+}
+
+impl tower::Service<Name> for ResolverService {
+  type Response = SocketAddrs;
+  type Error = Error;
+  // We can't "name" an `async` generated future.
+  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send >>;
+
+  fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+      // This connector is always ready, but others might not be.
+      Poll::Ready(Ok(()))
+  }
+
+  fn call(&mut self, _: Name) -> Self::Future {
+    let socket_addrs = self.socket_addrs.clone();
+    let fut = async move { 
+      Ok(socket_addrs) 
+    };
+    Box::pin(fut)
+  }
+}
+
+impl Iterator for SocketAddrs {
+  type Item = std::net::IpAddr;
+
+  fn next(&mut self) -> Option<Self::Item> {
+      self.inner.next().map(|sa| sa.ip())
   }
 }
 

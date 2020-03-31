@@ -34,52 +34,20 @@ impl AsRef<[u8]> for Response {
 }
 
  pub fn download_file(url: String, timeout: Duration) -> Result<Response, Error> {
-  if url.contains("http://") {
-    let mut rt = tokio::runtime::Builder::new()
-    .basic_scheduler()
-    .enable_time()
-    .enable_io()
-    .build()
-    .unwrap();
-    let url : hyper::Uri = url.parse::<hyper::Uri>()?;
-    let result : tokio::task::JoinHandle<std::result::Result<std::result::Result<(http::response::Parts, std::vec::Vec<u8>), Error>, tokio::time::Elapsed>> = rt.enter(|| {
-        rt.spawn(
-            tokio::time::timeout(timeout,
-            async move {
-                let client = hyper::Client::new();
-                let req = hyper::Request::builder();
-                let req = req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
-                let req = req.body(hyper::Body::empty())?;
-                let response : hyper::Response<hyper::Body> = client.request(req).await?;
-                let mut parts = response.into_parts();
-                let mut body = vec![];
-                let mut is_some = true;
-                while is_some {
-                    let option = parts.1.next().await;
-                    is_some = option.is_some();
-                    if is_some {
-                        body.append(&mut option.unwrap().unwrap().to_vec());
-                    }
-                }
-                Ok((parts.0, body))
-            })
-        )
-    });
-    let result = rt.block_on(result).unwrap().unwrap()?;
-    Ok(Response::new(result.0, result.1))
-  } else if url.contains("https://") {
     let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
     let url : hyper::Uri = url.parse::<hyper::Uri>()?;
     let result : tokio::task::JoinHandle<std::result::Result<std::result::Result<(http::response::Parts, std::vec::Vec<u8>), Error>, tokio::time::Elapsed>> = rt.enter(|| {
         rt.spawn(
             tokio::time::timeout(timeout,
             async move {
-                let https = hyper_tls::HttpsConnector::new();
-                let client = hyper::Client::builder().build::<_, hyper::Body>(https);
                 let req = hyper::Request::builder();
                 let req = req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
                 let req = req.body(hyper::Body::empty())?;
-                let response : hyper::Response<hyper::Body> = client.request(req).await?;
+
+                let https = hyper_tls::HttpsConnector::new();
+                let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+                let response = client.request(req).await?;
+
                 let mut parts = response.into_parts();
                 let mut body = vec![];
                 let mut is_some = true;
@@ -96,9 +64,6 @@ impl AsRef<[u8]> for Response {
     });
     let result = rt.block_on(result).unwrap().unwrap()?;
     Ok(Response::new(result.0, result.1))
-  } else {
-    Err(Error::new(format!("Unknown file format: {}", url)))
-  }
 }
 
 pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64)> {
@@ -153,6 +118,7 @@ impl<W: Write, F: FnMut(&mut W, &mut u64)> BufWriter<W, F> {
         if written > 0 {
             self.buf.drain(..written);
         }
+        self.get_mut().flush()?;
         if ret.is_ok() {
           self.written += written as u64;
           (self.callback)(self.inner.as_mut().unwrap(), &mut self.written);
@@ -162,6 +128,11 @@ impl<W: Write, F: FnMut(&mut W, &mut u64)> BufWriter<W, F> {
 
     pub fn get_mut(&mut self) -> &mut W {
       self.inner.as_mut().unwrap()
+    }
+
+    pub fn into_inner(mut self) -> Result<W, Error> {
+        self.flush_buf()?;
+        Ok(self.inner.take().unwrap())
     }
 }
 

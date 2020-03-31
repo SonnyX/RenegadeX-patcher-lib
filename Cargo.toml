@@ -21,6 +21,7 @@ tokio = { version = "^0.2", features = ["full"] }
 url = "^2.1.0"
 futures = "^0.3"
 http-body = "^0.3"
+tower = "*"
 
 [profile.test]
 opt-level = 3

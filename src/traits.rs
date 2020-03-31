@@ -51,6 +51,7 @@ pub struct Error {
 }
 
 impl Error {
+    #[inline(always)]
     pub const fn new(msg: String) -> Error {
         Error { 
             details: msg,
