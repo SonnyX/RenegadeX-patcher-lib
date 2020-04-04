@@ -36,6 +36,7 @@ use rayon::prelude::*;
 use ini::Ini;
 use sha2::{Sha256, Digest};
 use http_body::Body;
+use hyper::client::{Client, HttpConnector};
 
 #[derive(Clone)]
 pub struct Progress {
@@ -808,7 +809,6 @@ impl Downloader {
     };
 
     self.get_file(&mirror, f, &download_url, resume_part, part_size, &download_entry)?;
-    println!("Downloaded file {}", &download_entry.file_path);
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = get_hash(&download_entry.file_path);
     if hash != download_entry.file_hash {
@@ -886,9 +886,9 @@ pub fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, 
     file.write_all(&(parts as u32).to_be_bytes()).expect(concat!(module_path!(),":",file!(),":",line!()));
     file.seek(SeekFrom::Start(*total_written)).expect(concat!(module_path!(),":",file!(),":",line!()));
   });
-  writer.seek(SeekFrom::Start((part_size * resume_part) as u64))?;
+  writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).expect(concat!(module_path!(),":",file!(),":",line!()));
 
-  let url = download_url.parse::<hyper::Uri>()?;
+  let url = download_url.parse::<hyper::Uri>().expect(concat!(module_path!(),":",file!(),":",line!()));
   let trunc_size = download_entry.file_size as u64;
 
   let mut req = hyper::Request::builder();
@@ -896,14 +896,16 @@ pub fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, 
   if resume_part != 0 {
     req = req.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
   };
-  let req = req.body(hyper::Body::empty())?;
+  let req = req.body(hyper::Body::empty()).expect(concat!(module_path!(),":",file!(),":",line!()));
   let ip = mirror.ip.clone();
   let result = rt.enter(|| {
     rt.spawn(async move {
+      let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unwrap().into();
       let resolver_service = ResolverService::new(ip);
-      let http_connector : hyper::client::HttpConnector<ResolverService> = hyper::client::HttpConnector::new_with_resolver(resolver_service);
-      let builder = hyper::client::Client::builder();
-      let client = builder.build::<hyper::client::HttpConnector<ResolverService>,hyper::body::Body>(http_connector);
+      let mut http_connector : HttpConnector<ResolverService> = HttpConnector::new_with_resolver(resolver_service);
+      http_connector.enforce_http(false);
+      let https_connector : hyper_tls::HttpsConnector<HttpConnector<ResolverService>> = (http_connector, tls).into();
+      let client = Client::builder().build::<_, hyper::Body>(https_connector);
 
       let res = client.request(req).await?;
       let status = res.status();
@@ -998,7 +1000,7 @@ fn get_hash(file_path: &str) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
-
+/*
   #[test]
    fn downloader() {
     let mut patcher : super::Downloader = super::Downloader::new();
@@ -1033,6 +1035,42 @@ mod tests {
     let mut download_url = format!("{}", mirror.address);
     download_url.replace_range(replace_from.., "/10kb_file");
     println!("{}", download_url);
+    let resume_part = 0;
+    let part_size = 10u64.pow(6) as usize;
+    let download_entry = DownloadEntry {
+      file_path: r"10kb_file".to_string(),
+      file_size: 10000,
+      file_hash: r"".to_string(),
+      patch_entries: Vec::new()
+    };
+
+    let unlocked_state = Arc::new(Mutex::new(Progress::new()));
+    let result : Result<(), traits::Error> = get_download_file(unlocked_state, &mirror, file, &download_url, resume_part, part_size, &download_entry);
+    assert!(result.is_ok());
+
+    let hash = get_hash("10kb_file");
+    assert!(hash == "57E4EA27346F82C265C5081ED51E137A6F0DD61F51655775E83BFFCC52E48A2A")
+  }
+*/
+  #[test]
+  fn download_https_file() {
+    let mut mirrors = Mirrors::new();
+    mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").unwrap();
+    let mut mirrors_vec : Vec<Mirror> = Vec::new();
+    let mut mirror : Mirror = mirrors.get_mirror();
+    while !mirror.address.as_str().contains("https://") {
+      mirrors_vec.insert(0, mirror);
+      mirror = mirrors.get_mirror();
+    }
+
+    let file = OpenOptions::new().read(true).write(true).create(true).open("10kb_file").unwrap();
+    file.set_len(10004).unwrap();
+
+    let replace_from = mirror.address.rfind('/').unwrap_or_else(|| mirror.address.len());
+    let mut download_url = format!("{}", mirror.address);
+    download_url.replace_range(replace_from.., "/10kb_file");
+    println!("{}", download_url);
+
     let resume_part = 0;
     let part_size = 10u64.pow(6) as usize;
     let download_entry = DownloadEntry {

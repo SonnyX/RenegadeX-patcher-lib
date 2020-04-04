@@ -63,23 +63,19 @@ impl Error {
 impl std::fmt::Display for Error {
   #[inline(always)]
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(f,"{}:{}:{}", file!(), line!(), self.details)
+    write!(f,"{}", self.details)
   }
 }
 
-impl std::error::Error for Error {
-  #[inline(always)]
-  fn description(&self) -> &str {
-    &self.details
-  }
-}
+
+impl std::error::Error for Error {}
+
 
 impl From<std::io::Error> for Error {
   #[inline(always)]
   fn from(error: std::io::Error) -> Self {
-    use std::error::Error;
     Self {
-      details: error.description().to_string(),
+      details: format!("{}", error),
       remove_mirror: false
     }
   }
@@ -88,9 +84,8 @@ impl From<std::io::Error> for Error {
 impl From<tokio::time::Elapsed> for Error {
   #[inline(always)]
   fn from(error: tokio::time::Elapsed) -> Self {
-    use std::error::Error;
     Self {
-      details: error.description().to_string(),
+      details: format!("{}", error),
       remove_mirror: true
     }
   }
@@ -99,9 +94,8 @@ impl From<tokio::time::Elapsed> for Error {
 impl From<std::string::FromUtf8Error> for Error {
   #[inline(always)]
   fn from(error: std::string::FromUtf8Error) -> Self {
-    use std::error::Error;
     Self {
-      details: error.description().to_string(),
+      details: format!("{}", error),
       remove_mirror: false
     }
   }
@@ -122,10 +116,9 @@ impl From<tokio::timer::timeout::Error<hyper::Error>> for Error {
 impl From<http::Error> for Error {
   #[inline(always)]
   fn from(error: http::Error) -> Self {
-    use std::error::Error;
     println!("http::Error: {:#?}", error);
     Self {
-      details: error.description().to_string(),
+      details: format!("{}", error),
       remove_mirror: false
     }
   }
@@ -134,10 +127,9 @@ impl From<http::Error> for Error {
 impl From<http::uri::InvalidUri> for Error {
   #[inline(always)]
   fn from(error: http::uri::InvalidUri) -> Self {
-    use std::error::Error;
     println!("http::uri::InvalidUri: {:#?}", error);
     Self {
-      details: error.description().to_string(),
+      details: format!("{}", error),
       remove_mirror: false
     }
   }
@@ -146,10 +138,9 @@ impl From<http::uri::InvalidUri> for Error {
 impl From<hyper::Error> for Error {
   #[inline(always)]
   fn from(error: hyper::Error) -> Self {
-    use std::error::Error;
     println!("hyper::Error: {:#?}", error);
     Self {
-      details: error.description().to_string(),
+      details: format!("{}", error),
       remove_mirror: error.is_user()
     }
   }
