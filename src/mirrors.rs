@@ -155,14 +155,17 @@ impl Mirrors {
     let mut mirror_vec = Vec::with_capacity(release_data["game"]["mirrors"].len());
     release_data["game"]["mirrors"].members().for_each(|mirror| mirror_vec.push(mirror["url"].as_string()) );
     for mirror in mirror_vec {
-      let url = mirror.parse::<url::Url>().expect(concat!(module_path!(),":",file!(),":",line!()));
-      self.mirrors.push(Mirror{
-        address: Arc::new(format!("{}{}", &mirror, release_data["game"]["patch_path"].as_string())),
-        ip: url.socket_addrs(|| None).expect(concat!(module_path!(),":",file!(),":",line!())).into(),
-        speed: 1.0,
-        ping: 1000.0,
-        enabled: Arc::new(Mutex::new(false)),
-      });
+      if let Ok(url) = mirror.parse::<url::Url>() {
+        if let Ok(ip) = url.socket_addrs(|| None) {
+          self.mirrors.push(Mirror{
+            address: Arc::new(format!("{}{}", &mirror, release_data["game"]["patch_path"].as_string())),
+            ip: ip.into(),
+            speed: 1.0,
+            ping: 1000.0,
+            enabled: Arc::new(Mutex::new(false)),
+          });
+        }
+      }
     }
     self.test_mirrors()?;
     println!("{:#?}", &self.mirrors);
