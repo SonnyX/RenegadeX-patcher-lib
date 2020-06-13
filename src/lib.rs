@@ -683,6 +683,7 @@ impl Downloader {
         },
         Err(e) => {
           println!("Download {} failed with error message: {}", &download_url, e);
+          self.mirrors.increment_error_count(&mirror);
           if attempt == 4 { return Err(format!("Couldn't download file: {}", &key).into()) }
           else {
             println!("Downloading file from {} failed due to error: {}", download_url, e);

@@ -50,19 +50,14 @@ impl AsRef<[u8]> for Response {
 
                 let mut parts = response.into_parts();
                 let mut body = vec![];
-                let mut is_some = true;
-                while is_some {
-                    let option = parts.1.next().await;
-                    is_some = option.is_some();
-                    if is_some {
-                        body.append(&mut option.unwrap().unwrap().to_vec());
-                    }
+                while let Some(option) = parts.1.next().await {
+                    body.append(&mut option.expect("downloader.rs: Unwrap on option failed.").to_vec());
                 }
                 Ok((parts.0, body))
             })
         )
     });
-    let result = rt.block_on(result).unwrap().unwrap()?;
+    let result = rt.block_on(result).expect("downloader.rs: Couldn't do first unwrap on rt.block_on().").expect("downloader.rs: Couldn't do second unwrap on rt.block_on().")?;
     Ok(Response::new(result.0, result.1))
 }
 
