@@ -181,8 +181,7 @@ impl Mirrors {
         }
       }
     }
-    self.test_mirrors()?;
-    println!("{:#?}", &self.mirrors);
+
     self.instructions_hash = Some(release_data["game"]["instructions_hash"].as_string());
     self.version_number = Some(release_data["game"]["version_number"].as_u64().expect(&format!("mirrors.rs: Could not cast JSON version_number as a u64, input was {}", release_data["game"]["version_number"])).to_string());
     Ok(())

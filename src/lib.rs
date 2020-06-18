@@ -235,6 +235,16 @@ impl Downloader {
     }
   }
 
+  pub fn rank_mirrors(&mut self) -> Result<(), Error> {
+    if !self.mirrors.is_empty() {
+      self.mirrors.test_mirrors()?;
+      println!("{:#?}", &self.mirrors.mirrors);
+      Ok(())
+    } else {
+      Err("No mirrors available to test".to_string().into())
+    }
+  }
+
   ///
   ///
   ///
