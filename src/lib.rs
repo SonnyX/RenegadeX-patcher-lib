@@ -879,10 +879,54 @@ impl Downloader {
     });
   }
 
-  ///
-  ///
-  ///
-  ///
+
+  /// Example usage:
+  /// patcher.download_file("Redists/UE3Redist.exe", writer);
+  pub async fn download_file_from_mirrors(&self, relative_path: &str, mut writer: impl Write) -> Result<(), Error> {
+    // Get a mirror:
+    let mirror = self.mirrors.get_mirror();
+    let ip = mirror.ip.clone();
+
+    // Create a client
+    let resolver_service = ResolverService::new(ip);
+    let mut http_connector : HttpConnector<ResolverService> = HttpConnector::new_with_resolver(resolver_service);
+    http_connector.enforce_http(false);
+    let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unwrap().into();
+    let https_connector : hyper_tls::HttpsConnector<HttpConnector<ResolverService>> = (http_connector, tls).into();
+    let client = Client::builder().build::<_, hyper::Body>(https_connector);
+
+    // Create the URL
+    let mut url = format!("{}", mirror.address.to_owned());
+    url.truncate(url.rfind('/').expect(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
+    let url = format!("{}{}", url, relative_path);
+    println!("{}", &url);
+    let url = url.parse::<hyper::Uri>().expect(concat!(module_path!(),":",file!(),":",line!()));
+    // Set up the request
+    let mut req = hyper::Request::builder();
+    req = req.uri(url).header("User-Agent", "sonny-launcher/1.0");
+    let req = req.body(hyper::Body::empty()).expect(concat!(module_path!(),":",file!(),":",line!()));
+    // Send the request
+    let res = client.request(req).await?;
+    // Was the request succesfull?
+    let status = res.status();
+    if status == 200 || status == 206 {
+      // The request is succesfull, iterate over the chunks and write them to the writer.
+      let mut body = res.into_body();
+      while !body.is_end_stream() {
+        let chunk = tokio::time::timeout(Duration::from_secs(10), body.next()).await.expect("Timed out").expect("Error while unwrapping chunk, corrupted data?")?;
+        writer.write_all(&chunk).expect("Writer encountered an error");
+      }
+      Ok(writer.flush()?)
+    } else {
+      println!("Unexpected response: found status code {}!", status);
+      Err(format!("Unexpected response: found status code {}!", status).into())
+    }
+  }
+
+  /// 
+  /// 
+  /// 
+  /// 
   pub fn get_progress(&self) -> Arc<Mutex<Progress>> {
     self.state.clone()
   }
@@ -921,7 +965,7 @@ pub fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, 
       let res = client.request(req).await?;
       let status = res.status();
       let mut abort_in_error = status != 200 && status != 206;
-      println!("{}, {}", abort_in_error, status);
+
       let mut body = res.into_body();
       while !body.is_end_stream() && !abort_in_error {
         let chunk = tokio::time::timeout(Duration::from_secs(10), body.next()).await.expect("Timed out").unwrap_or_else(|| {
@@ -1063,6 +1107,26 @@ mod tests {
     assert!(hash == "57E4EA27346F82C265C5081ED51E137A6F0DD61F51655775E83BFFCC52E48A2A")
   }
 */
+
+  #[test]
+  fn download_file_from_mirror() {
+    let mut patcher : super::Downloader = super::Downloader::new();
+    patcher.set_location("C:/RenegadeX/".to_string());
+    patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
+    patcher.retrieve_mirrors().unwrap();
+    patcher.rank_mirrors().unwrap();
+    let file : Vec<u8> = vec![];
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let result = rt.enter(|| {
+      rt.spawn(async move {
+        patcher.download_file_from_mirrors("/redists/UE3Redist.exe", file).await?;
+        Ok::<(), Error>(())
+      })
+    });
+    let result = rt.block_on(result).unwrap();
+    println!("Download result: {:#?}", result);
+  }
+
   #[test]
   fn download_https_file() {
     let mut mirrors = Mirrors::new();

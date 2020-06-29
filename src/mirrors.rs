@@ -213,7 +213,7 @@ impl Mirrors {
         let mut url = format!("{}", mirror.address.to_owned());
         url.truncate(url.rfind('/').expect(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
         url.push_str("10kb_file");
-        let download_response = download_file(url, Duration::from_millis(10_000/fastest_mirror_speed as u64 * 4));
+        let download_response = download_file(url, Duration::from_millis(1_000/fastest_mirror_speed as u64 * 4));
         match download_response {
           Ok(result) => {
             let duration = start.elapsed();

@@ -37,7 +37,7 @@ impl AsRef<[u8]> for Response {
     let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
     let url : hyper::Uri = url.parse::<hyper::Uri>()?;
     let result : tokio::task::JoinHandle<std::result::Result<std::result::Result<(http::response::Parts, std::vec::Vec<u8>), Error>, tokio::time::Elapsed>> = rt.enter(|| {
-        rt.spawn(
+        rt.spawn(async move {
             tokio::time::timeout(timeout,
             async move {
                 let req = hyper::Request::builder();
@@ -54,10 +54,10 @@ impl AsRef<[u8]> for Response {
                     body.append(&mut option.expect("downloader.rs: Unwrap on option failed.").to_vec());
                 }
                 Ok((parts.0, body))
-            })
-        )
+            }).await
+        })
     });
-    let result = rt.block_on(result).expect("downloader.rs: Couldn't do first unwrap on rt.block_on().").expect("downloader.rs: Couldn't do second unwrap on rt.block_on().")?;
+    let result = rt.block_on(result).expect("downloader.rs: Couldn't do first unwrap on rt.block_on().")??;
     Ok(Response::new(result.0, result.1))
 }
 
