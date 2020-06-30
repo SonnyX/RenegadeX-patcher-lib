@@ -614,7 +614,7 @@ impl Downloader {
         state.hashes_checked.0 += 1;
         drop(state);
       } else {
-        //this file does not math old hash, nor the new hash, thus it's corrupted
+        //this file does not match old hash, nor the new hash, thus it's corrupted
         //download full file
         println!("No suitable patch file found for \"{}\", downloading full file!", &hash_entry.path);
         let key : &String = hash_entry.new_hash.borrow();
@@ -881,8 +881,8 @@ impl Downloader {
 
 
   /// Example usage:
-  /// patcher.download_file("Redists/UE3Redist.exe", writer);
-  pub async fn download_file_from_mirrors(&self, relative_path: &str, mut writer: impl Write) -> Result<(), Error> {
+  /// patcher.download_file("redists/UE3Redist.exe", writer);
+  pub fn download_file_from_mirrors(&self, relative_path: &str, mut writer: impl Write + Send + 'static) -> Result<(), Error> {
     // Get a mirror:
     let mirror = self.mirrors.get_mirror();
     let ip = mirror.ip.clone();
@@ -906,21 +906,27 @@ impl Downloader {
     req = req.uri(url).header("User-Agent", "sonny-launcher/1.0");
     let req = req.body(hyper::Body::empty()).expect(concat!(module_path!(),":",file!(),":",line!()));
     // Send the request
-    let res = client.request(req).await?;
-    // Was the request succesfull?
-    let status = res.status();
-    if status == 200 || status == 206 {
-      // The request is succesfull, iterate over the chunks and write them to the writer.
-      let mut body = res.into_body();
-      while !body.is_end_stream() {
-        let chunk = tokio::time::timeout(Duration::from_secs(10), body.next()).await.expect("Timed out").expect("Error while unwrapping chunk, corrupted data?")?;
-        writer.write_all(&chunk).expect("Writer encountered an error");
-      }
-      Ok(writer.flush()?)
-    } else {
-      println!("Unexpected response: found status code {}!", status);
-      Err(format!("Unexpected response: found status code {}!", status).into())
-    }
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let result = rt.enter(|| {
+      rt.spawn(async move {
+        let res = client.request(req).await?;
+        // Was the request succesfull?
+        let status = res.status();
+        if status == 200 || status == 206 {
+          // The request is succesfull, iterate over the chunks and write them to the writer.
+          let mut body = res.into_body();
+          while !body.is_end_stream() {
+            let chunk = tokio::time::timeout(Duration::from_secs(10), body.next()).await.expect("Timed out").expect("Error while unwrapping chunk, corrupted data?")?;
+            writer.write_all(&chunk).expect("Writer encountered an error");
+          }
+          Ok(writer.flush()?)
+        } else {
+          println!("Unexpected response: found status code {}!", status);
+          Err(format!("Unexpected response: found status code {}!", status).into())
+        }
+      })
+    });
+    rt.block_on(result).unwrap()
   }
 
   /// 
@@ -1116,14 +1122,7 @@ mod tests {
     patcher.retrieve_mirrors().unwrap();
     patcher.rank_mirrors().unwrap();
     let file : Vec<u8> = vec![];
-    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
-    let result = rt.enter(|| {
-      rt.spawn(async move {
-        patcher.download_file_from_mirrors("/redists/UE3Redist.exe", file).await?;
-        Ok::<(), Error>(())
-      })
-    });
-    let result = rt.block_on(result).unwrap();
+    let result = patcher.download_file_from_mirrors("/redists/UE3Redist.exe", file);
     println!("Download result: {:#?}", result);
   }
 
