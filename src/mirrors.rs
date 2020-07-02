@@ -207,13 +207,12 @@ impl Mirrors {
     let mut handles = Vec::new();
     for i in 0..self.mirrors.len() {
       let mirror = self.mirrors[i].clone();
-      let fastest_mirror_speed = self.mirrors[0].speed;
       handles.push(std::thread::spawn(move || -> Mirror {
         let start = Instant::now();
         let mut url = format!("{}", mirror.address.to_owned());
         url.truncate(url.rfind('/').expect(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
         url.push_str("10kb_file");
-        let download_response = download_file(url, Duration::from_millis(1_000/fastest_mirror_speed as u64 * 4));
+        let download_response = download_file(url, Duration::from_secs(2));
         match download_response {
           Ok(result) => {
             let duration = start.elapsed();
