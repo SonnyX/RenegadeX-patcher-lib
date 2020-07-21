@@ -23,6 +23,7 @@ futures = "^0.3"
 http-body = "^0.3"
 tower = "^0.3.1"
 tokio-tls = "^0.3.1"
+runas = { git = "https://github.com/SonnyX/rust-runas.git" }
 
 [profile.test]
 opt-level = 3

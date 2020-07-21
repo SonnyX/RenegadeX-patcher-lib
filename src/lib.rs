@@ -8,9 +8,9 @@ extern crate hyper;
 extern crate futures;
 extern crate tokio;
 extern crate url;
-//extern crate tokio_reactor;
 extern crate http;
 extern crate tower;
+extern crate runas;
 
 //Standard library
 use crate::futures::StreamExt;
@@ -661,7 +661,15 @@ impl Downloader {
  */
   fn download_files(&self) -> Result<(), Error> {
     let dir_path = format!("{}patcher/", self.renegadex_location.borrow());
-    DirBuilder::new().recursive(true).create(dir_path).expect(concat!(module_path!(),":",file!(),":",line!()));
+    match DirBuilder::new().recursive(true).create(&dir_path) {
+      Err(_) => {
+        runas::Command::new("powershell")
+        .arg(format!("-command \"($acl = Get-ACL {directory}).AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.WindowsIdentity]::GetCurrent().Name,\"\"\"FullControl\"\"\",\"\"\"Allow\"\"\"))); $acl | Set-ACL {directory}\"", directory=self.renegadex_location.borrow()))
+        .gui(true).status().expect("Could not set Access Rule for RenegadeX directory");
+        DirBuilder::new().recursive(true).create(&dir_path).expect(concat!(module_path!(),":",file!(),":",line!()))
+      },
+      _ => {}
+    }
     let download_hashmap = self.download_hashmap.lock().expect(concat!(module_path!(),":",file!(),":",line!()));
     let mut sorted_downloads_by_size = Vec::from_iter(download_hashmap.deref());
     sorted_downloads_by_size.sort_unstable_by(|&(_, a), &(_,b)| b.file_size.cmp(&a.file_size));
