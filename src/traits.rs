@@ -165,3 +165,41 @@ impl From<&str> for Error {
     }
   }
 }
+
+pub trait ExpectUnwrap<T> :  {
+  fn unexpected(self, msg: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> ExpectUnwrap<T> for Result<T, E> {
+  #[inline]
+  fn unexpected(self, msg: &str) -> T {
+    match self {
+      Ok(val) => val,
+      Err(e) => unwrap_failed(msg, &e),
+    }
+  }
+}
+
+impl<T> ExpectUnwrap<T> for Option<T> {
+  #[inline]
+  fn unexpected(self, msg: &str) -> T {
+    match self {
+      Some(val) => val,
+      None => expect_failed(msg),
+    }
+  }
+}
+
+#[inline(never)]
+#[cold]
+fn expect_failed(msg: &str) -> ! {
+  log::error!("{}", msg);
+  panic!("{}", msg)
+}
+
+#[inline(never)]
+#[cold]
+fn unwrap_failed(msg: &str, error: &dyn std::fmt::Debug) -> ! {
+  log::error!("{}: {:?}", msg, error);
+  panic!("{}: {:?}", msg, error)
+}

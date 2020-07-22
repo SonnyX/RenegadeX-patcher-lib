@@ -6,8 +6,9 @@ use std::task::Poll;
 use std::future::Future;
 
 use crate::downloader::download_file;
-use crate::traits::{AsString,Error};
+use crate::traits::{AsString,Error,ExpectUnwrap};
 use hyper::client::connect::dns::Name;
+use log::{error,trace};
 
 
 #[derive(Debug, Clone)]
@@ -121,8 +122,8 @@ impl Mirrors {
     for i in 0..self.mirrors.len() {
       if &self.mirrors[i].ip == &entry.ip {
         let error_count = self.mirrors[i].error_count.clone();
-        *error_count.lock().expect("mirrors.rs: Couldn't lock error_count field.") += 1;
-        if *error_count.lock().expect("mirrors.rs: Couldn't lock error_count field.") == 4 {
+        *error_count.lock().unexpected("mirrors.rs: Couldn't lock error_count field.") += 1;
+        if *error_count.lock().unexpected("mirrors.rs: Couldn't lock error_count field.") == 4 {
           self.disable(i);
         }
       }
@@ -139,7 +140,7 @@ impl Mirrors {
 
   pub fn disable(&self, entry: usize) {
     let mirrors = self.mirrors[entry].enabled.clone();
-    *mirrors.lock().expect("mirrors.rs: Couldn't lock enabled field.") = false;
+    *mirrors.lock().unexpected("mirrors.rs: Couldn't lock enabled field.") = false;
   }
 
   /**
@@ -160,7 +161,7 @@ impl Mirrors {
     };
     self.launcher_info = Some(LauncherInfo {
       version_name: release_data["launcher"]["version_name"].as_string(),
-      version_number: release_data["launcher"]["version_number"].as_usize().expect(&format!("mirrors.rs: Could not cast JSON version_number as a usize, input was {}", release_data["game"]["version_number"])),
+      version_number: release_data["launcher"]["version_number"].as_usize().unexpected(&format!("mirrors.rs: Could not cast JSON version_number as a usize, input was {}", release_data["game"]["version_number"])),
       patch_url: release_data["launcher"]["patch_url"].as_string(),
       patch_hash: release_data["launcher"]["patch_hash"].as_string(),
       prompted: false,
@@ -183,7 +184,7 @@ impl Mirrors {
     }
 
     self.instructions_hash = Some(release_data["game"]["instructions_hash"].as_string());
-    self.version_number = Some(release_data["game"]["version_number"].as_u64().expect(&format!("mirrors.rs: Could not cast JSON version_number as a u64, input was {}", release_data["game"]["version_number"])).to_string());
+    self.version_number = Some(release_data["game"]["version_number"].as_u64().unexpected(&format!("mirrors.rs: Could not cast JSON version_number as a u64, input was {}", release_data["game"]["version_number"])).to_string());
     Ok(())
   }
 
@@ -191,12 +192,13 @@ impl Mirrors {
   pub fn get_mirror(&self) -> Mirror {
     for i in 0.. {
       for mirror in self.mirrors.iter() {
-        if *mirror.enabled.lock().expect("mirrors.rs: Couldn't get exclusive lock on mirror.enabled.") && Arc::strong_count(&mirror.address) == i {
-          println!("i: {}, mirror: {}", i, &mirror.address);
+        if *mirror.enabled.lock().unexpected("mirrors.rs: Couldn't get exclusive lock on mirror.enabled.") && Arc::strong_count(&mirror.address) == i {
+          trace!("i: {}, mirror: {}", i, &mirror.address);
           return mirror.clone();
         }
       }
     }
+    error!("No mirrors were found!");
     panic!("No mirrors found?");
   }
 
@@ -210,14 +212,14 @@ impl Mirrors {
       handles.push(std::thread::spawn(move || -> Mirror {
         let start = Instant::now();
         let mut url = format!("{}", mirror.address.to_owned());
-        url.truncate(url.rfind('/').expect(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
+        url.truncate(url.rfind('/').unexpected(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
         url.push_str("10kb_file");
         let download_response = download_file(url, Duration::from_secs(2));
         match download_response {
           Ok(result) => {
             let duration = start.elapsed();
             let content_length = result.headers().get("content-length");
-            if content_length.is_none() || content_length.expect("mirrors.rs: Couldn't unwrap content_length") != "10000" {
+            if content_length.is_none() || content_length.unexpected("mirrors.rs: Couldn't unwrap content_length") != "10000" {
               Mirror { 
                 address: mirror.address,
                 ip: mirror.ip,
@@ -251,7 +253,7 @@ impl Mirrors {
       }));
     }
     for handle in handles {
-      let mirror = handle.join().expect("mirrors.rs: Failed to execute thread in test_mirrors!");
+      let mirror = handle.join().unexpected("mirrors.rs: Failed to execute thread in test_mirrors!");
       for i in 0..self.mirrors.len() {
         if self.mirrors[i].address == mirror.address {
           self.mirrors[i] = mirror;
@@ -260,7 +262,7 @@ impl Mirrors {
       }
     }
     if self.mirrors.len() > 1 {
-      self.mirrors.sort_by(|a,b| b.speed.partial_cmp(&a.speed).expect(&format!("mirrors.rs: Couldn't compare a.speed with b.speed.")));
+      self.mirrors.sort_by(|a,b| b.speed.partial_cmp(&a.speed).unexpected(&format!("mirrors.rs: Couldn't compare a.speed with b.speed.")));
       let best_speed = self.mirrors[0].speed;
       for mut elem in self.mirrors.iter_mut() {
         if elem.speed < best_speed / 4.0 {

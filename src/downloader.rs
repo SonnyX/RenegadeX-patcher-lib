@@ -1,7 +1,7 @@
 use std::io::prelude::*; 
 use std::io::{self, SeekFrom};
 use std::time::Duration;
-use crate::traits::Error;
+use crate::traits::{Error, ExpectUnwrap};
 use crate::futures::StreamExt;
 
 /// A Response to a submitted `Request`.
@@ -51,13 +51,13 @@ impl AsRef<[u8]> for Response {
                 let mut parts = response.into_parts();
                 let mut body = vec![];
                 while let Some(option) = parts.1.next().await {
-                    body.append(&mut option.expect("downloader.rs: Unwrap on option failed.").to_vec());
+                    body.append(&mut option.unexpected("downloader.rs: Unwrap on option failed.").to_vec());
                 }
                 Ok((parts.0, body))
             }).await
         })
     });
-    let result = rt.block_on(result).expect("downloader.rs: Couldn't do first unwrap on rt.block_on().")??;
+    let result = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().")??;
     Ok(Response::new(result.0, result.1))
 }
 
