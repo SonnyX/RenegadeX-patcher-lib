@@ -667,9 +667,9 @@ impl Downloader {
     let dir_path = format!("{}patcher/", self.renegadex_location.borrow());
     match DirBuilder::new().recursive(true).create(&dir_path) {
       Err(_) => {
-        runas::Command::new("powershell")
-        .arg(format!("-command \"($acl = Get-ACL {directory}).AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.WindowsIdentity]::GetCurrent().Name,\"\"\"FullControl\"\"\",\"\"\"Allow\"\"\"))); $acl | Set-ACL {directory}\"", directory=self.renegadex_location.borrow()))
-        .gui(true).status().unexpected("Could not set Access Rule for RenegadeX directory");
+        runas::Command::new("RenegadeX-folder-permissions.exe")
+        .arg(format!("($acl = Get-ACL {directory}).AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.WindowsIdentity]::GetCurrent().Name,\"FullControl\",\"Allow\"))); $acl | Set-ACL {directory}", directory=self.renegadex_location.borrow()))
+        .gui(true).spawn().unexpected("Could not set Access Rule for RenegadeX directory: Process did not launch.").wait().unexpected("Could not set Access Rule for RenegadeX directory: Process exited unexpectedly.");
         DirBuilder::new().recursive(true).create(&dir_path).unexpected(concat!(module_path!(),":",file!(),":",line!()))
       },
       _ => {}
