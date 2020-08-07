@@ -717,7 +717,7 @@ impl Downloader {
         }
       };
     }
-    println!("Adding {} to patch queue", &key);
+    info!("Adding {} to patch queue", &key);
 
     //apply delta
     let mut patch_queue = self.patch_queue.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
@@ -823,7 +823,7 @@ impl Downloader {
     f.read_exact(&mut buf).unexpected(concat!(module_path!(),":",file!(),":",line!()));
     let resume_part : usize = u32::from_be_bytes(buf) as usize;
     if resume_part != 0 { 
-      println!("Resuming download \"{}\" from part {} out of {}", &download_entry.file_path, resume_part, parts_amount);
+      info!("Resuming download \"{}\" from part {} out of {}", &download_entry.file_path, resume_part, parts_amount);
       if first_attempt {
         let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
         state.download_size.0 += (part_size * resume_part) as u64;
@@ -871,17 +871,17 @@ impl Downloader {
         drop(state);
         if !finished_hash {
           if old_download_size != download_size {
-            println!("Comparing files, total to be downloaded: {:.1} MB", (download_size.1 as f64)*0.000_001);
+            info!("Comparing files, total to be downloaded: {:.1} MB", (download_size.1 as f64)*0.000_001);
           }
           if old_hashes_checked != hashes_checked {
-            println!("Checked {} out of {} hashes.", hashes_checked.0, hashes_checked.1);
+            info!("Checked {} out of {} hashes.", hashes_checked.0, hashes_checked.1);
           }
         } else {
           if old_download_size != download_size {
-            println!("Downloaded {:.1}/{:.1} MB, speed: {}/s", (download_size.0 as f64)*0.000_001, (download_size.1 as f64)*0.000_001, convert((download_size.0 - old_download_size.0) as f64));
+            info!("Downloaded {:.1}/{:.1} MB, speed: {}/s", (download_size.0 as f64)*0.000_001, (download_size.1 as f64)*0.000_001, convert((download_size.0 - old_download_size.0) as f64));
           }
           if patch_files != old_patch_files {
-            println!("Patched {}/{} files", patch_files.0, patch_files.1);
+            info!("Patched {}/{} files", patch_files.0, patch_files.1);
           }
         }
         old_download_size = download_size;
@@ -911,7 +911,7 @@ impl Downloader {
     let mut url = format!("{}", mirror.address.to_owned());
     url.truncate(url.rfind('/').unexpected(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
     let url = format!("{}{}", url, relative_path);
-    println!("{}", &url);
+    trace!("{}", &url);
     let url = url.parse::<hyper::Uri>().unexpected(concat!(module_path!(),":",file!(),":",line!()));
     // Set up the request
     let mut req = hyper::Request::builder();
@@ -933,7 +933,7 @@ impl Downloader {
           }
           Ok(writer.flush()?)
         } else {
-          println!("Unexpected response: found status code {}!", status);
+          error!("Unexpected response: found status code {}!", status);
           Err(format!("Unexpected response: found status code {}!", status).into())
         }
       })
@@ -986,23 +986,26 @@ pub fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, 
 
       let mut body = res.into_body();
       while !body.is_end_stream() && !abort_in_error {
-        let chunk = tokio::time::timeout(Duration::from_secs(10), body.next()).await.unexpected("Timed out").unwrap_or_else(|| {
-          abort_in_error = true; 
-          Ok(hyper::body::Bytes::new())
-        })?;
+        let chunk = match tokio::time::timeout(Duration::from_secs(10), body.next()).await {
+          Ok(Some(Ok(result))) => result,
+          _ => {
+            abort_in_error = true; 
+            hyper::body::Bytes::new()
+          }
+        };
         writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e)).unexpected(concat!(module_path!(),":",file!(),":",line!()));
         let mut state = unlocked_state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
         state.download_size.0 += chunk.len() as u64;
         drop(state);
       }
+      writer.flush()?;
       if !abort_in_error {
-        writer.flush()?;
         let f = writer.into_inner()?;
         f.sync_all()?;
         f.set_len(trunc_size)?;
         Ok(())
       } else {
-        println!("Unexpected response: found status code {}!", status);
+        error!("Unexpected response: found status code {}!", status);
         Err(format!("Unexpected response: found status code {}!", status).into())
       }
     })

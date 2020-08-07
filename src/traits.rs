@@ -1,3 +1,5 @@
+use log::*;
+
 pub trait AsString {
   fn as_string(&self) -> String;
   fn as_string_option(&self) -> Option<String>;
@@ -9,7 +11,10 @@ impl AsString for json::JsonValue {
     match *self {
       json::JsonValue::Short(ref value)  => value.to_string(),
       json::JsonValue::String(ref value) => value.to_string(),
-      _                                  => panic!("Expected a JSON String")
+      _                                  => {
+        error!("Expected a JSON String");
+        panic!("Expected a JSON String")
+      }
     }
   }
 
@@ -39,7 +44,10 @@ impl<T> BorrowUnwrap<T> for Option<T> {
   fn borrow(&self) -> &T {
     match self {
       Some(val) => val,
-      None => panic!("called `Option::borrow()` on a `None` value"),
+      None => {
+        error!("called `Option::borrow()` on a `None` value");
+        panic!("called `Option::borrow()` on a `None` value")
+      },
     }
   }
 }
@@ -116,7 +124,7 @@ impl From<tokio::timer::timeout::Error<hyper::Error>> for Error {
 impl From<http::Error> for Error {
   #[inline(always)]
   fn from(error: http::Error) -> Self {
-    println!("http::Error: {:#?}", error);
+    error!("http::Error: {:#?}", error);
     Self {
       details: format!("{}", error),
       remove_mirror: false
@@ -127,7 +135,7 @@ impl From<http::Error> for Error {
 impl From<http::uri::InvalidUri> for Error {
   #[inline(always)]
   fn from(error: http::uri::InvalidUri) -> Self {
-    println!("http::uri::InvalidUri: {:#?}", error);
+    error!("http::uri::InvalidUri: {:#?}", error);
     Self {
       details: format!("{}", error),
       remove_mirror: false
@@ -138,7 +146,7 @@ impl From<http::uri::InvalidUri> for Error {
 impl From<hyper::Error> for Error {
   #[inline(always)]
   fn from(error: hyper::Error) -> Self {
-    println!("hyper::Error: {:#?}", error);
+    error!("hyper::Error: {:#?}", error);
     Self {
       details: format!("{}", error),
       remove_mirror: error.is_user()
