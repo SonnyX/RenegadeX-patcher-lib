@@ -26,8 +26,12 @@ use std::sync::{Arc, Mutex};
 //Modules
 mod mirrors;
 mod downloader;
+mod directory;
+mod instructions;
 pub mod traits;
+use directory::Directory;
 use downloader::{BufWriter, download_file};
+use instructions::Instruction;
 use std::time::Duration;
 use mirrors::{Mirrors, Mirror, ResolverService};
 use traits::{AsString, BorrowUnwrap, Error, ExpectUnwrap};
@@ -70,86 +74,6 @@ impl Progress {
       finished_patching: false,
     }
   }
-}
-
-#[derive(Debug)]
-struct Directory {
-  name: std::ffi::OsString,
-  subdirectories: Vec<Directory>,
-  files: Vec<std::path::PathBuf>,
-}
-
-impl Directory {
-  pub fn get_or_create_subdirectory(&mut self, name: std::ffi::OsString) -> &mut Directory {
-    for index in 0..self.subdirectories.len() {
-      if self.subdirectories[index].name == name {
-        return &mut self.subdirectories[index];
-      }
-    }
-    self.subdirectories.push(
-      Directory {
-        name: name,
-        subdirectories: Vec::new(),
-        files: Vec::new(), 
-      }
-    );
-    return self.subdirectories.last_mut().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-  }
-
-  pub fn get_subdirectory(&self, name: std::ffi::OsString) -> Option<&Directory> {
-    for index in 0..self.subdirectories.len() {
-      if self.subdirectories[index].name == name {
-        return Some(&self.subdirectories[index]);
-      }
-    }
-    return None;
-  }
-
-  pub fn directory_exists(&self, path: std::path::PathBuf) -> bool {
-    //split up path into an iter and push it to temporary path's, if it's all done then we're good
-    let mut temp = self;
-    for directory in path.iter() {
-      temp = match temp.get_subdirectory(directory.to_owned()) {
-        Some(subdir) => subdir,
-        None => {
-          return false;
-        },
-      };
-    }
-    return true;
-  }
-
-  pub fn file_exists(&self, file: std::path::PathBuf) -> bool {
-    //split up path into an iter and push it to temporary path's, if it's all done then we're good
-    if file.file_name().unexpected(concat!(module_path!(),":",file!(),":",line!())) == "InstallInfo.xml" {
-      return true;
-    }
-    let mut temp = self;
-    let mut dir = file.clone();
-    dir.pop();
-    for directory in dir.iter() {
-      temp = match temp.get_subdirectory(directory.to_owned()) {
-        Some(subdir) => subdir,
-        None => {
-          return false;
-        },
-      };
-    }
-    return temp.files.contains(&file);
-  }
-
-}
-
-#[derive(Debug, Clone)]
-struct Instruction {
-  path: String,
-  old_hash: Option<String>,
-  new_hash: Option<String>,
-  compressed_hash: Option<String>,
-  delta_hash: Option<String>,
-  full_replace_size: usize,
-  delta_size: usize,
-  has_delta: bool
 }
 
 #[derive(Debug,Clone)]
@@ -227,19 +151,23 @@ impl Downloader {
   ///
   ///
   ///
-  pub fn retrieve_mirrors(&mut self) -> Result<(), Error> {
+  pub async fn retrieve_mirrors(&mut self) -> Result<(), Error> {
     if self.version_url.is_none() {
       Err("Version URL was not set before calling retrieve_mirrors".to_string().into())
     } else if self.mirrors.is_empty() {
-      self.mirrors.get_mirrors(self.version_url.borrow())
+      self.mirrors.get_mirrors(self.version_url.borrow()).await
     } else {
       Ok(())
     }
   }
 
-  pub fn rank_mirrors(&mut self) -> Result<(), Error> {
+  ///
+  ///
+  ///
+  ///
+  pub async fn rank_mirrors(&mut self) -> Result<(), Error> {
     if !self.mirrors.is_empty() {
-      self.mirrors.test_mirrors()?;
+      self.mirrors.test_mirrors().await?;
       info!("{:#?}", &self.mirrors.mirrors);
       Ok(())
     } else {
@@ -301,7 +229,8 @@ impl Downloader {
   ///
   ///
   ///
-  pub fn download(&mut self) -> Result<(), Error> {
+  pub async fn download(&mut self) -> Result<(), Error> {
+    // Reset progress
     let mut progress = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
     progress.update = Update::Unknown;
     progress.hashes_checked = (0,0);
@@ -309,13 +238,16 @@ impl Downloader {
     progress.patch_files = (0,0);
     progress.finished_hash = false;
     progress.finished_patching = false;
+    // Drop the locked state object.
     drop(progress);
+
+    
     self.download_hashmap = Mutex::new(BTreeMap::new());
     self.hash_queue = Mutex::new(Vec::new());
     self.patch_queue = Arc::new(Mutex::new(Vec::new()));
 
     if self.instructions.is_empty() {
-      self.retrieve_instructions()?;
+      self.retrieve_instructions().await;
     }
     self.process_instructions();
     info!("Retrieved instructions, checking hashes.");
@@ -336,62 +268,8 @@ impl Downloader {
    * | retrieve_instructions |  --> | Get Json |
    * -------------------------      ------------
   */
-  fn retrieve_instructions(&mut self) -> Result<(), Error> {
-    if self.mirrors.is_empty() {
-      return Err("No mirrors found! Did you retrieve mirrors?".to_string().into());
-    }
-    if !self.instructions.is_empty() {
-      return Ok(());
-    }
-    let instructions_mutex : Mutex<String> = Mutex::new("".to_string());
-    for retry in 0..3 {
-      let mirror = self.mirrors.get_mirror();
-      let result : Result<(),Error> = {
-        let url = format!("{}/instructions.json", &mirror.address);
-        //println!("{}", &instructions_url);
-        //let text = reqwest::get(&instructions_url)?.text().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        let mut text = download_file(url, Duration::from_secs(60))?;
-        let text = text.text()?;
-        // check instructions hash
-        let mut sha256 = Sha256::new();
-        sha256.input(&text);
-        let hash = hex::encode_upper(sha256.result());
-        if &hash != self.mirrors.instructions_hash.borrow() {
-          Err(format!("Hash of instructions.json ({}) did not match the one specified in release.json ({})!", &hash, self.mirrors.instructions_hash.borrow()).into())
-        } else {
-          *instructions_mutex.lock().unexpected(concat!(module_path!(),":",file!(),":",line!())) = text;
-          Ok(())
-        }
-      };
-      if result.is_ok() {
-        break;
-      } else if result.is_err() && retry == 2 {
-        //TODO: This is bound to one day go wrong
-        return Err("Couldn't fetch instructions.json".to_string().into());
-      } else {
-        warn!("Removing mirror: {:#?}", &mirror);
-        self.mirrors.remove(mirror);
-      }
-    }
-    let instructions_text : String = instructions_mutex.into_inner().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    let instructions_data = match json::parse(&instructions_text) {
-      Ok(result) => result,
-      Err(e) => return Err(format!("Invalid JSON: {}", e).into())
-    };
-    instructions_data.into_inner().iter().for_each(|instruction| {
-      let file_path = format!("{}{}", self.renegadex_location.borrow(), instruction["Path"].as_string().replace("\\", "/"));
-      self.instructions.push(Instruction {
-              path:                file_path,
-              old_hash:            instruction["OldHash"].as_string_option(),
-              new_hash:            instruction["NewHash"].as_string_option(),
-              compressed_hash:     instruction["CompressedHash"].as_string_option(),
-              delta_hash:          instruction["DeltaHash"].as_string_option(),
-              full_replace_size:   instruction["FullReplaceSize"].as_usize().unexpected(concat!(module_path!(),":",file!(),":",line!())),
-              delta_size:          instruction["DeltaSize"].as_usize().unexpected(concat!(module_path!(),":",file!(),":",line!())),
-              has_delta:           instruction["HasDelta"].as_bool().unexpected(concat!(module_path!(),":",file!(),":",line!()))
-            });
-    });
-    Ok(())
+  async fn retrieve_instructions(&mut self) -> Result<(), Error> {
+    crate::instructions::retrieve_instructions(&self.mirrors, &mut self.instructions, &self.renegadex_location.clone().unexpected("No RenegadeX Location found")).await
   }
 
   /*
@@ -417,7 +295,7 @@ impl Downloader {
       //lets start off by trying to open the file.
       match OpenOptions::new().read(true).open(&instruction.path) {
         Ok(_file) => {
-          if instruction.new_hash.is_some() {
+          if instruction.newest_hash.is_some() {
             let mut hash_queue = self.hash_queue.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
             hash_queue.push(instruction.clone());
             drop(hash_queue);
@@ -430,19 +308,19 @@ impl Downloader {
           }
         },
         Err(_e) => {
-          if let Some(key) = &instruction.new_hash {
+          if let Some(key) = &instruction.newest_hash {
             let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
             let mut download_hashmap = self.download_hashmap.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
             if !download_hashmap.contains_key(key) {
               let download_entry = DownloadEntry {
                 file_path: delta_path.clone(),
-                file_size: instruction.full_replace_size,
-                file_hash: instruction.compressed_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
+                file_size: instruction.full_vcdiff_size,
+                file_hash: instruction.full_vcdiff_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
                 patch_entries: Vec::new(),
               };
               download_hashmap.insert(key.clone(), download_entry);
               let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-              state.download_size.1 += instruction.full_replace_size as u64;
+              state.download_size.1 += instruction.full_vcdiff_size as u64;
               drop(state);
             }
             let patch_entry = PatchEntry {
@@ -462,9 +340,9 @@ impl Downloader {
     });
   }
 
-  pub fn remove_unversioned(&mut self) -> Result<(), Error> {
+  pub async fn remove_unversioned(&mut self) -> Result<(), Error> {
     if self.instructions.is_empty() {
-      self.retrieve_instructions()?;
+      self.retrieve_instructions().await?;
     }
     let mut versioned_files = Directory {
       name: "".into(),
@@ -481,7 +359,7 @@ impl Downloader {
       }
       //path should be the correct directory now.
       //thus add file to path.files
-      if entry.new_hash.is_some() {
+      if entry.newest_hash.is_some() {
         path.files.push(std::path::PathBuf::from(&entry.path).strip_prefix(&renegadex_path).unexpected(concat!(module_path!(),":",file!(),":",line!())).to_path_buf());
       }
     }
@@ -500,7 +378,7 @@ impl Downloader {
         }
       } else {
         info!("Remove file: {:?}", &file.path());
-        //doubt antything
+        //doubt anything
       }
     }
     Ok(())
@@ -522,7 +400,7 @@ impl Downloader {
           info!("Removing file: {:?}", &file.path());
           std::fs::remove_file(&file.path())?;
         }
-        //doubt antything
+        //doubt anything
       }
     }
     Ok(())
@@ -551,7 +429,7 @@ impl Downloader {
       let file_path_source = format!("{}.vcdiff_src", &hash_entry.path);
       let file_hash = match OpenOptions::new().read(true).open(&file_path_source) {
         Ok(_file) => {
-          if hash_entry.old_hash.is_some() && &get_hash(&file_path_source) == hash_entry.old_hash.borrow() {
+          if hash_entry.previous_hash.is_some() && &get_hash(&file_path_source) == hash_entry.previous_hash.borrow() {
             match std::fs::remove_file(&hash_entry.path) {
               Ok(()) => {},
               Err(_e) => {
@@ -562,10 +440,10 @@ impl Downloader {
           } else {
             match std::fs::remove_file(&file_path_source) {
               Ok(()) => {
-                info!("Removed .vcdiff_src which did not match old_hash...");
+                info!("Removed .vcdiff_src which did not match previous_hash...");
               },
               Err(_e) => {
-                error!("Couldn't remove .vcdiff_src which did not match old_hash...");
+                error!("Couldn't remove .vcdiff_src which did not match previous_hash...");
               }
             }
           }
@@ -575,16 +453,16 @@ impl Downloader {
           get_hash(&hash_entry.path)
         },
       };
-      if hash_entry.old_hash.is_some() && hash_entry.new_hash.is_some() && &file_hash == hash_entry.old_hash.borrow() && &file_hash != hash_entry.new_hash.borrow() && hash_entry.has_delta {
+      if hash_entry.previous_hash.is_some() && hash_entry.newest_hash.is_some() && &file_hash == hash_entry.previous_hash.borrow() && &file_hash != hash_entry.newest_hash.borrow() && hash_entry.has_delta {
         //download patch file
-        let key = format!("{}_from_{}", hash_entry.new_hash.borrow(), hash_entry.old_hash.borrow());
+        let key = format!("{}_from_{}", hash_entry.newest_hash.borrow(), hash_entry.previous_hash.borrow());
         let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
         let mut download_hashmap = self.download_hashmap.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
         if !download_hashmap.contains_key(&key) {
           let download_entry = DownloadEntry {
             file_path: delta_path.clone(),
-            file_size: hash_entry.delta_size,
-            file_hash: match hash_entry.delta_hash.clone() {
+            file_size: hash_entry.delta_vcdiff_size,
+            file_hash: match hash_entry.delta_vcdiff_hash.clone() {
               Some(hash) => hash,
               None => {
                 error!("Delta hash is empty for download_entry: {:?}", hash_entry);
@@ -595,7 +473,7 @@ impl Downloader {
           };
           download_hashmap.insert(key.clone(), download_entry);
           let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-          state.download_size.1 += hash_entry.delta_size as u64;
+          state.download_size.1 += hash_entry.delta_vcdiff_size as u64;
           drop(state);
         }
 
@@ -603,7 +481,7 @@ impl Downloader {
           target_path: hash_entry.path.clone(),
           delta_path,
           has_source: true,
-          target_hash: hash_entry.new_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
+          target_hash: hash_entry.newest_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
         };
         download_hashmap.get_mut(&key).unexpected(concat!(module_path!(),":",file!(),":",line!())).patch_entries.push(patch_entry);
         drop(download_hashmap);
@@ -611,7 +489,7 @@ impl Downloader {
         state.patch_files.1 += 1;
         state.hashes_checked.0 += 1;
         drop(state);
-      } else if hash_entry.new_hash.is_some() && &file_hash == hash_entry.new_hash.borrow() {
+      } else if hash_entry.newest_hash.is_some() && &file_hash == hash_entry.newest_hash.borrow() {
         //this file is up to date
         let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
         state.hashes_checked.0 += 1;
@@ -620,14 +498,14 @@ impl Downloader {
         //this file does not match old hash, nor the new hash, thus it's corrupted
         //download full file
         trace!("No suitable patch file found for \"{}\", downloading full file!", &hash_entry.path);
-        let key : &String = hash_entry.new_hash.borrow();
+        let key : &String = hash_entry.newest_hash.borrow();
         let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
         let mut download_hashmap = self.download_hashmap.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
         if !download_hashmap.contains_key(key) {
          let download_entry = DownloadEntry {
             file_path: delta_path.clone(),
-            file_size: hash_entry.full_replace_size,
-            file_hash: match hash_entry.compressed_hash.clone() {
+            file_size: hash_entry.full_vcdiff_size,
+            file_hash: match hash_entry.full_vcdiff_hash.clone() {
               Some(hash) => hash,
               None => {
                 error!("Delta hash is empty for download_entry: {:?}", hash_entry);
@@ -638,7 +516,7 @@ impl Downloader {
           };
           download_hashmap.insert(key.clone(), download_entry);
           let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-          state.download_size.1 += hash_entry.full_replace_size as u64;
+          state.download_size.1 += hash_entry.full_vcdiff_size as u64;
           drop(state);
         }
 
@@ -646,7 +524,7 @@ impl Downloader {
           target_path: hash_entry.path.clone(),
           delta_path,
           has_source: false,
-          target_hash: hash_entry.new_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
+          target_hash: hash_entry.newest_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
         };
         download_hashmap.get_mut(key).unexpected(concat!(module_path!(),":",file!(),":",line!())).patch_entries.push(patch_entry);
         drop(download_hashmap);
@@ -1134,8 +1012,10 @@ mod tests {
     let mut patcher : super::Downloader = super::Downloader::new();
     patcher.set_location("C:/RenegadeX/".to_string());
     patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
-    patcher.retrieve_mirrors().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    patcher.rank_mirrors().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    async {
+      patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    };
     let file : Vec<u8> = vec![];
     let result = patcher.download_file_from_mirrors("/redists/UE3Redist.exe", file);
     println!("Download result: {:#?}", result);
@@ -1144,7 +1024,10 @@ mod tests {
   #[test]
   fn download_https_file() {
     let mut mirrors = Mirrors::new();
-    mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let result = async move {
+      mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    };
+
     let mut mirrors_vec : Vec<Mirror> = Vec::new();
     let mut mirror : Mirror = mirrors.get_mirror();
     while !mirror.address.as_str().contains("https://") {

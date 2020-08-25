@@ -146,8 +146,8 @@ impl Mirrors {
   /**
   Downloads release.json from the renegade-x server and adds it to the struct
   */
-  pub fn get_mirrors(&mut self, location: &str) -> Result<(), Error> {
-    let mut release_json = match download_file(location.to_string(), Duration::from_secs(10)) {
+  pub async fn get_mirrors(&mut self, location: &str) -> Result<(), Error> {
+    let mut release_json = match download_file(location.to_string(), Duration::from_secs(10)).await {
       Ok(result) => result,
       Err(e) => return Err(format!("Is your internet down? {}", e).into())
     };
@@ -205,16 +205,16 @@ impl Mirrors {
   /**
   Checks the speed on the mirrors again
   */
-  pub fn test_mirrors(&mut self) -> Result<(), Error> {
+  pub async fn test_mirrors(&mut self) -> Result<(), Error> {
     let mut handles = Vec::new();
     for i in 0..self.mirrors.len() {
       let mirror = self.mirrors[i].clone();
-      handles.push(std::thread::spawn(move || -> Mirror {
+      handles.push(std::thread::spawn(async move || -> Mirror {
         let start = Instant::now();
         let mut url = format!("{}", mirror.address.to_owned());
         url.truncate(url.rfind('/').unexpected(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
         url.push_str("10kb_file");
-        let download_response = download_file(url, Duration::from_secs(2));
+        let download_response = download_file(url, Duration::from_secs(2)).await;
         match download_response {
           Ok(result) => {
             let duration = start.elapsed();

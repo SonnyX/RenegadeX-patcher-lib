@@ -1,5 +1,7 @@
 use log::*;
 
+//pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 pub trait AsString {
   fn as_string(&self) -> String;
   fn as_string_option(&self) -> Option<String>;

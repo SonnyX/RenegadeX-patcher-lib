@@ -3,6 +3,7 @@ use std::io::{self, SeekFrom};
 use std::time::Duration;
 use crate::traits::{Error, ExpectUnwrap};
 use crate::futures::StreamExt;
+use log::*;
 
 /// A Response to a submitted `Request`.
 pub struct Response {
@@ -33,31 +34,27 @@ impl AsRef<[u8]> for Response {
     }
 }
 
- pub fn download_file(url: String, timeout: Duration) -> Result<Response, Error> {
-    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+ pub async fn download_file(url: String, timeout: Duration) -> Result<Response, Error> {
     let url : hyper::Uri = url.parse::<hyper::Uri>()?;
-    let result : tokio::task::JoinHandle<std::result::Result<std::result::Result<(http::response::Parts, std::vec::Vec<u8>), Error>, tokio::time::Elapsed>> = rt.enter(|| {
-        rt.spawn(async move {
-            tokio::time::timeout(timeout,
-            async move {
-                let req = hyper::Request::builder();
-                let req = req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
-                let req = req.body(hyper::Body::empty())?;
 
-                let https = hyper_tls::HttpsConnector::new();
-                let client = hyper::Client::builder().build::<_, hyper::Body>(https);
-                let response = client.request(req).await?;
+    let req = hyper::Request::builder();
+    let req = req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
+    let req = req.body(hyper::Body::empty())?;
 
-                let mut parts = response.into_parts();
-                let mut body = vec![];
-                while let Some(option) = parts.1.next().await {
-                    body.append(&mut option.unexpected("downloader.rs: Unwrap on option failed.").to_vec());
-                }
-                Ok((parts.0, body))
-            }).await
-        })
-    });
-    let result = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().")??;
+    let https = hyper_tls::HttpsConnector::new();
+    let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+
+    let response = async move {
+        let response = client.request(req).await?;
+
+        let mut parts = response.into_parts();
+        let mut body = vec![];
+        while let Some(option) = parts.1.next().await {
+            body.append(&mut option.unexpected("downloader.rs: Unwrap on option failed.").to_vec());
+        }
+        Ok::<_, crate::traits::Error>((parts.0, body))
+    };
+    let result = tokio::time::timeout(timeout, response).await??;
     Ok(Response::new(result.0, result.1))
 }
 
