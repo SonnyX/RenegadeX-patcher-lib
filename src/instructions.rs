@@ -1,6 +1,6 @@
 use crate::traits::Error;
 use crate::mirrors::Mirrors;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use log::*;
 use std::time::Duration;
 use sha2::{Sha256, Digest};
@@ -47,7 +47,7 @@ pub(crate) struct Instruction {
 
 
 
-pub async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut Vec<Instruction>, renegadex_location: &str) -> Result<(), Error> {
+pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut Vec<Instruction>, renegadex_location: &str) -> Result<(), Error> {
   if mirrors.is_empty() {
     return Err("No mirrors found! Did you retrieve mirrors?".to_string().into());
   }

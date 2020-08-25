@@ -30,11 +30,11 @@ mod directory;
 mod instructions;
 pub mod traits;
 use directory::Directory;
-use downloader::{BufWriter, download_file};
+use downloader::BufWriter;
 use instructions::Instruction;
 use std::time::Duration;
 use mirrors::{Mirrors, Mirror, ResolverService};
-use traits::{AsString, BorrowUnwrap, Error, ExpectUnwrap};
+use traits::{BorrowUnwrap, Error, ExpectUnwrap};
 
 //External crates
 use rayon::prelude::*;
@@ -44,7 +44,7 @@ use sha2::{Sha256, Digest};
 use http_body::Body;
 use hyper::client::{Client, HttpConnector};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Progress {
   pub update: Update,
   pub hashes_checked: (u64, u64),
@@ -54,7 +54,7 @@ pub struct Progress {
   pub finished_patching: bool,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Update {
   Unknown,
   UpToDate,
@@ -92,6 +92,7 @@ pub struct DownloadEntry {
   patch_entries: Vec<PatchEntry>,
 }
 
+#[derive(Debug)]
 pub struct Downloader {
   renegadex_location: Option<String>, //Os dependant
   version_url: Option<String>,
@@ -247,7 +248,7 @@ impl Downloader {
     self.patch_queue = Arc::new(Mutex::new(Vec::new()));
 
     if self.instructions.is_empty() {
-      self.retrieve_instructions().await;
+      self.retrieve_instructions().await?;
     }
     self.process_instructions();
     info!("Retrieved instructions, checking hashes.");
@@ -892,6 +893,7 @@ pub fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, 
   result
 }
 
+/// Convert a raw bytesize into a network speed
 pub fn convert(num: f64) -> String {
   let negative = if num.is_sign_positive() { "" } else { "-" };
   let num = num.abs();
@@ -906,13 +908,13 @@ pub fn convert(num: f64) -> String {
   format!("{}{} {}", negative, pretty_bytes, unit)
 }
 
-/*
- * Applies the vcdiff patch file to the target file.
- * 
- * -------------- par --------------------------------------------------
- * | DeltaQueue | --> | apply patch to all files that match this Delta |
- * --------------     --------------------------------------------------
- */
+///
+/// Applies the vcdiff patch file to the target file.
+/// ```
+/// -------------- par --------------------------------------------------
+/// | DeltaQueue | --> | apply patch to all files that match this Delta |
+/// --------------     --------------------------------------------------
+///```
 fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<(), Error> {
   let mut dir_path = patch_entry.target_path.clone();
   dir_path.truncate(patch_entry.target_path.rfind('/').unexpected(concat!(module_path!(),":",file!(),":",line!())));
@@ -941,9 +943,9 @@ fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<
 }
 
 
-/*
- * Opens a file and calculates it's SHA256 hash
- */
+///
+/// Opens a file and calculates it's SHA256 hash
+///
 fn get_hash(file_path: &str) -> String {
   let mut file = OpenOptions::new().read(true).open(file_path).unexpected(concat!(module_path!(),":",file!(),":",line!()));
   let mut sha256 = Sha256::new();
@@ -1012,10 +1014,17 @@ mod tests {
     let mut patcher : super::Downloader = super::Downloader::new();
     patcher.set_location("C:/RenegadeX/".to_string());
     patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
-    async {
-      patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    };
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+
+    let result = rt.enter(|| {
+      rt.spawn(async move {
+        patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        patcher
+      })
+    });
+    let patcher = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
+    println!("{:#?}", patcher);
     let file : Vec<u8> = vec![];
     let result = patcher.download_file_from_mirrors("/redists/UE3Redist.exe", file);
     println!("Download result: {:#?}", result);
@@ -1024,9 +1033,14 @@ mod tests {
   #[test]
   fn download_https_file() {
     let mut mirrors = Mirrors::new();
-    let result = async move {
-      mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    };
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let result = rt.enter(|| {
+      rt.spawn(async move {
+        mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        mirrors
+      })
+    });
+    let mirrors = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
 
     let mut mirrors_vec : Vec<Mirror> = Vec::new();
     let mut mirror : Mirror = mirrors.get_mirror();

@@ -3,7 +3,6 @@ use std::io::{self, SeekFrom};
 use std::time::Duration;
 use crate::traits::{Error, ExpectUnwrap};
 use crate::futures::StreamExt;
-use log::*;
 
 /// A Response to a submitted `Request`.
 pub struct Response {
