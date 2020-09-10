@@ -252,9 +252,9 @@ impl Downloader {
     }
     self.process_instructions();
     info!("Retrieved instructions, checking hashes.");
-    self.check_hashes();
+    self.check_hashes()?;
     let child_process = self.check_patch_queue();
-    self.download_files()?;
+    self.download_files().await?;
     child_process.join().unexpected(concat!(module_path!(),":",file!(),":",line!()));
     //need to wait somehow for patch_queue to finish.
     let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
@@ -424,13 +424,13 @@ impl Downloader {
  *                         |      Add to Patch HashMap      |   |    Add to Patch Hashmap    |
  *                         ----------------------------------   ------------------------------
  */
-  fn check_hashes(&mut self) {
+  fn check_hashes(&mut self) -> Result<(), Error> {
     let hash_queue = self.hash_queue.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
     hash_queue.par_iter().for_each(|hash_entry| {
       let file_path_source = format!("{}.vcdiff_src", &hash_entry.path);
       let file_hash = match OpenOptions::new().read(true).open(&file_path_source) {
         Ok(_file) => {
-          if hash_entry.previous_hash.is_some() && &get_hash(&file_path_source) == hash_entry.previous_hash.borrow() {
+          if hash_entry.previous_hash.is_some() && &get_hash(&file_path_source).unexpected("Failed to hash") == hash_entry.previous_hash.borrow() {
             match std::fs::remove_file(&hash_entry.path) {
               Ok(()) => {},
               Err(_e) => {
@@ -448,10 +448,10 @@ impl Downloader {
               }
             }
           }
-          get_hash(&hash_entry.path)
+          get_hash(&hash_entry.path).unexpected("Failed to hash")
         },
         Err(_e) => {
-          get_hash(&hash_entry.path)
+          get_hash(&hash_entry.path).unexpected("Failed to hash")
         },
       };
       if hash_entry.previous_hash.is_some() && hash_entry.newest_hash.is_some() && &file_hash == hash_entry.previous_hash.borrow() && &file_hash != hash_entry.newest_hash.borrow() && hash_entry.has_delta {
@@ -536,13 +536,14 @@ impl Downloader {
       }
     });
     self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!())).finished_hash = true;
+    Ok(())
   }
 
 
 /*
  * Iterates over the download_hashmap and calls download_and_patch for each DownloadEntry.
  */
-  fn download_files(&self) -> Result<(), Error> {
+  async fn download_files(&self) -> Result<(), Error> {
     let dir_path = format!("{}patcher/", self.renegadex_location.borrow());
     match DirBuilder::new().recursive(true).create(&dir_path) {
       Err(_) => {
@@ -556,14 +557,15 @@ impl Downloader {
     let download_hashmap = self.download_hashmap.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
     let mut sorted_downloads_by_size = Vec::from_iter(download_hashmap.deref());
     sorted_downloads_by_size.sort_unstable_by(|&(_, a), &(_,b)| b.file_size.cmp(&a.file_size));
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(20).build().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    pool.install(|| {
-      rayon::scope_fifo(|s| {
-        for (key, download_entry) in sorted_downloads_by_size.into_iter() {
-          s.spawn_fifo(move |_| {self.download_and_patch(key, download_entry).unexpected(concat!(module_path!(),":",file!(),":",line!()));});
-        }
-      })
-    });
+    let mut handles = Vec::new();
+    for (key, download_entry) in sorted_downloads_by_size.into_iter() {
+      handles.push(self.download_and_patch(key, download_entry));
+    }
+    let results = futures::future::join_all(handles).await;
+    for result in results {
+      result?;
+    }
+
     Ok(())
   }
 
@@ -571,14 +573,14 @@ impl Downloader {
   ///
   ///
   ///
-  fn download_and_patch(&self, key: &str, download_entry: &DownloadEntry) -> Result<(), Error> {
+  async fn download_and_patch(&self, key: &str, download_entry: &DownloadEntry) -> Result<(), Error> {
     for attempt in 0..5 {
       let mirror = self.mirrors.get_mirror();
       let download_url = match download_entry.patch_entries[0].has_source {
         true => format!("{}/delta/{}", &mirror.address, &key),
         false => format!("{}/full/{}", &mirror.address, &key)
       };
-      match self.download_file(&mirror, &download_url, download_entry, attempt == 0) {
+      match self.download_file(&mirror, &download_url, download_entry, attempt == 0).await {
         Ok(()) => {
           break
         },
@@ -666,7 +668,7 @@ impl Downloader {
   /// Downloads the file in parts
   ///
   ///
-  fn download_file(&self, mirror: &Mirror, download_url: &str, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
+  async fn download_file(&self, mirror: &Mirror, download_url: &str, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
     let part_size = 10u64.pow(6) as usize; //1.000.000
     let mut f = match OpenOptions::new().read(true).write(true).create(true).open(&download_entry.file_path) {
       Ok(file) => file,
@@ -681,7 +683,7 @@ impl Downloader {
       if f.metadata().unexpected(concat!(module_path!(),":",file!(),":",line!())).len() == (download_entry.file_size as u64) {
         //If hash is correct, return.
         //Otherwise download again.
-        let hash = get_hash(&download_entry.file_path);
+        let hash = get_hash(&download_entry.file_path)?;
         if hash == download_entry.file_hash {
           let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
           state.download_size.0 += (download_entry.file_size) as u64;
@@ -710,9 +712,9 @@ impl Downloader {
       }
     };
 
-    self.get_file(&mirror, f, &download_url, resume_part, part_size, &download_entry)?;
+    self.get_file(&mirror, f, &download_url, resume_part, part_size, &download_entry).await?;
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
-    let hash = get_hash(&download_entry.file_path);
+    let hash = get_hash(&download_entry.file_path)?;
     if hash != download_entry.file_hash {
       let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
       state.download_size.0 -= download_entry.file_size as u64;
@@ -722,9 +724,9 @@ impl Downloader {
     Ok(())
   }
 
-  fn get_file(&self, mirror: &Mirror, f: std::fs::File, download_url: &str, resume_part: usize, part_size: usize, download_entry: &DownloadEntry ) -> Result<(), traits::Error> {
+  async fn get_file(&self, mirror: &Mirror, f: std::fs::File, download_url: &str, resume_part: usize, part_size: usize, download_entry: &DownloadEntry ) -> Result<(), Error> {
     let unlocked_state = self.state.clone();
-    get_download_file(unlocked_state, mirror, f, &download_url, resume_part, part_size, &download_entry)
+    get_download_file(unlocked_state, mirror, f, &download_url, resume_part, part_size, &download_entry).await
   }
 
   ///
@@ -829,8 +831,10 @@ impl Downloader {
   }
 }
 
-pub fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, f: std::fs::File, download_url: &str, resume_part: usize, part_size: usize, download_entry: &DownloadEntry ) -> Result<(), traits::Error>  {
-  let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+///
+/// 
+/// 
+pub async fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, f: std::fs::File, download_url: &str, resume_part: usize, part_size: usize, download_entry: &DownloadEntry ) -> Result<(), Error>  {
   let mut writer = BufWriter::new(f, move | file, total_written | {
     //When the buffer is being written to file, this closure gets executed
     let parts = *total_written / part_size as u64;
@@ -850,47 +854,42 @@ pub fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, 
   };
   let req = req.body(hyper::Body::empty()).unexpected(concat!(module_path!(),":",file!(),":",line!()));
   let ip = mirror.ip.clone();
-  let result = rt.enter(|| {
-    rt.spawn(async move {
-      let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unexpected(concat!(module_path!(),":",file!(),":",line!())).into();
-      let resolver_service = ResolverService::new(ip);
-      let mut http_connector : HttpConnector<ResolverService> = HttpConnector::new_with_resolver(resolver_service);
-      http_connector.enforce_http(false);
-      let https_connector : hyper_tls::HttpsConnector<HttpConnector<ResolverService>> = (http_connector, tls).into();
-      let client = Client::builder().build::<_, hyper::Body>(https_connector);
 
-      let res = client.request(req).await?;
-      let status = res.status();
-      let mut abort_in_error = status != 200 && status != 206;
+  let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unexpected(concat!(module_path!(),":",file!(),":",line!())).into();
+  let resolver_service = ResolverService::new(ip);
+  let mut http_connector : HttpConnector<ResolverService> = HttpConnector::new_with_resolver(resolver_service);
+  http_connector.enforce_http(false);
+  let https_connector : hyper_tls::HttpsConnector<HttpConnector<ResolverService>> = (http_connector, tls).into();
+  let client = Client::builder().build::<_, hyper::Body>(https_connector);
 
-      let mut body = res.into_body();
-      while !body.is_end_stream() && !abort_in_error {
-        let chunk = match tokio::time::timeout(Duration::from_secs(10), body.next()).await {
-          Ok(Some(Ok(result))) => result,
-          _ => {
-            abort_in_error = true; 
-            hyper::body::Bytes::new()
-          }
-        };
-        writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e)).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        let mut state = unlocked_state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        state.download_size.0 += chunk.len() as u64;
-        drop(state);
+  let res = client.request(req).await?;
+  let status = res.status();
+  let mut abort_in_error = status != 200 && status != 206;
+
+  let mut body = res.into_body();
+  while !body.is_end_stream() && !abort_in_error {
+    let chunk = match tokio::time::timeout(Duration::from_secs(10), body.next()).await {
+      Ok(Some(Ok(result))) => result,
+      _ => {
+        abort_in_error = true;
+        hyper::body::Bytes::new()
       }
-      writer.flush()?;
-      if !abort_in_error {
-        let f = writer.into_inner()?;
-        f.sync_all()?;
-        f.set_len(trunc_size)?;
-        Ok(())
-      } else {
-        error!("Unexpected response: found status code {}!", status);
-        Err(format!("Unexpected response: found status code {}!", status).into())
-      }
-    })
-  });
-  let result = rt.block_on(result).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-  result
+    };
+    writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e)).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let mut state = unlocked_state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    state.download_size.0 += chunk.len() as u64;
+    drop(state);
+  }
+  writer.flush()?;
+  if !abort_in_error {
+    let f = writer.into_inner()?;
+    f.sync_all()?;
+    f.set_len(trunc_size)?;
+    Ok(())
+  } else {
+    error!("Unexpected response: found status code {}!", status);
+    Err(format!("Unexpected response: found status code {}!", status).into())
+  }
 }
 
 /// Convert a raw bytesize into a network speed
@@ -932,7 +931,7 @@ fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<
     };
     xdelta::decode_file(None, &patch_entry.delta_path, &patch_entry.target_path);
   }
-  let hash = get_hash(&patch_entry.target_path);
+  let hash = get_hash(&patch_entry.target_path)?;
   if hash != patch_entry.target_hash {
     return Err(format!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash).into());
   }
@@ -946,39 +945,35 @@ fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<
 ///
 /// Opens a file and calculates it's SHA256 hash
 ///
-fn get_hash(file_path: &str) -> String {
-  let mut file = OpenOptions::new().read(true).open(file_path).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+fn get_hash(file_path: &str) -> Result<String, Error> {
+  let mut file = OpenOptions::new().read(true).open(file_path)?;
   let mut sha256 = Sha256::new();
-  std::io::copy(&mut file, &mut sha256).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-  hex::encode_upper(sha256.result())
+  std::io::copy(&mut file, &mut sha256)?;
+  Ok(hex::encode_upper(sha256.result()))
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-/*
+
   #[test]
    fn downloader() {
-    let mut patcher : super::Downloader = super::Downloader::new();
-    patcher.set_location("C:/RenegadeX/".to_string());
-    patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
-    patcher.retrieve_mirrors().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    patcher.remove_unversioned().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    match patcher.update_available().unexpected(concat!(module_path!(),":",file!(),":",line!())) {
-      super::Update::UpToDate => {
-        println!("Game up to date!");
-        patcher.poll_progress();
-        patcher.download().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      },
-      super::Update::Resume | super::Update::Delta | super::Update::Full | super::Update::Unknown => {
-        println!("Update available!");
-        patcher.poll_progress();
-        patcher.download().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      }
-    };
-    assert!(true);
+
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let result = rt.enter(|| {
+      rt.spawn(async {
+        let mut patcher : super::Downloader = super::Downloader::new();
+        patcher.set_location("C:/RenegadeX/".to_string());
+        patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());    
+        patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        patcher.remove_unversioned().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        //patcher.download().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      })
+    });
+    rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
   }
-  
+  /*
   #[test]
   fn test_hash() {
     let mut mirrors = Mirrors::new();
@@ -1030,6 +1025,7 @@ mod tests {
     println!("Download result: {:#?}", result);
   }
 
+  /*
   #[test]
   fn download_https_file() {
     let mut mirrors = Mirrors::new();
@@ -1037,6 +1033,7 @@ mod tests {
     let result = rt.enter(|| {
       rt.spawn(async move {
         mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        mirrors.test_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
         mirrors
       })
     });
@@ -1067,10 +1064,16 @@ mod tests {
     };
 
     let unlocked_state = Arc::new(Mutex::new(Progress::new()));
-    let result : Result<(), traits::Error> = get_download_file(unlocked_state, &mirror, file, &download_url, resume_part, part_size, &download_entry);
+    let result = rt.enter(|| {
+      rt.spawn(async move {
+        get_download_file(unlocked_state, &mirror, file, &download_url, resume_part, part_size, &download_entry).await
+      })
+    });
+    let result = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
     assert!(result.is_ok());
 
-    let hash = get_hash("10kb_file");
+    let hash = get_hash("10kb_file").expect("Shouldn't fail");
     assert!(hash == "57E4EA27346F82C265C5081ED51E137A6F0DD61F51655775E83BFFCC52E48A2A")
   }
+  */
 }

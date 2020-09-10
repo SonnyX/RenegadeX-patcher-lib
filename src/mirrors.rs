@@ -110,9 +110,9 @@ impl tower::Service<Name> for ResolverService {
   type Response = SocketAddrs;
   type Error = Error;
   // We can't "name" an `async` generated future.
-  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send >>;
+  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Error>> + Send >>;
 
-  fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+  fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> Poll<Result<(), Error>> {
       // This connector is always ready, but others might not be.
       Poll::Ready(Ok(()))
   }
