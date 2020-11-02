@@ -1,4 +1,6 @@
 pub enum Error {
     HashMismatch(),
-    DownloadTimeout()
+    DownloadTimeout(),
+    FileLocked(),
+    
 }
