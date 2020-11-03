@@ -25,6 +25,56 @@ use http_body::Body;
 use hyper::client::{Client, HttpConnector};
 
 
+pub struct Patcher {
+  pub paused: bool,
+}
+
+impl Patcher {
+  pub async fn start() -> Self {
+      Self {
+        paused: false,
+      }
+  }
+
+  pub async fn cancel(self) -> Result<(), ()> {
+    Ok(())
+  }
+
+  pub async fn pause(mut self) -> Result<(), ()> {
+    if self.paused {
+      return Err(());
+    }
+    self.paused = true;
+    Ok(())
+  }
+
+  pub async fn resume(mut self) -> Result<(), ()> {
+    if !self.paused {
+      return Err(());
+    }
+    self.paused = false;
+    Ok(())
+  }
+
+  pub async fn get_logs() -> String {
+    "".to_string()
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #[derive(Debug, Clone)]
 pub struct Progress {
   pub update: Update,

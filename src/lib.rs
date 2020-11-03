@@ -24,20 +24,6 @@ mod mirrors;
 pub mod patcher;
 pub mod traits;
 mod verify;
+mod pausable;
 
-
-pub async fn start() -> Result<(), ()> {
-    Ok(())
-}
-
-pub async fn cancel() {
-
-}
-
-pub async fn pause() {
-
-}
-
-pub async fn resume() {
-
-}
+pub use crate::patcher::Patcher;
