@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::panic;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 //Modules
 use crate::directory::Directory;
@@ -16,7 +16,7 @@ use crate::downloader::BufWriter;
 use crate::instructions::Instruction;
 use crate::mirrors::{Mirrors, Mirror, ResolverService};
 use crate::traits::{BorrowUnwrap, Error, ExpectUnwrap};
-use crate::pausable::{PausableTrait, Pausable};
+use crate::pausable::{PausableTrait, FutureContext};
 
 //External crates
 use rayon::prelude::*;
@@ -25,10 +25,11 @@ use log::*;
 use sha2::{Sha256, Digest};
 use http_body::Body;
 use hyper::client::{Client, HttpConnector};
+use futures::task::AtomicWaker;
 
 
 pub struct Patcher {
-  pub paused: Arc<AtomicBool>,
+  pub future_context: Arc<FutureContext>,
   pub logs: String,
 }
 
@@ -36,61 +37,74 @@ impl Patcher {
 // information needed:
 //  renegadex_location: Option<String>,
 //  version_url: Option<String>,
-  pub async fn start() -> Self {
-      Self {
-        paused: Arc::new(AtomicBool::new(false)),
+  pub async fn start(renegadex_location: String, version_url: String) -> Self {
+    let future_context = Arc::new(FutureContext { 
+      paused: AtomicBool::new(false),
+      waker: AtomicWaker::new(),
+      cancelled: AtomicBool::new(false),
+    });
+    
+    tokio::task::spawn(async {
+      println!("Waiting for");
+
+      tokio::time::delay_for(tokio::time::Duration::from_secs(10)).await;
+      println!("Task executed");
+    }.pausable(future_context.clone()));
+  
+    Self {
+        future_context,
         logs: "".to_string(),
       }
   }
 
-  pub async fn cancel(self) -> Result<(), ()> {
-    Ok(())
+  pub fn cancel(self) -> Result<(), ()> {
+    self.future_context.cancel()
   }
 
-  pub async fn pause(&self) -> Result<(), ()> {
-    if self.paused.load(Ordering::Relaxed) {
-      return Err(());
-    }
-    self.paused.swap(true, Ordering::Relaxed);
-    Ok(())
+  pub fn pause(&self) -> Result<(), ()> {
+    self.future_context.pause()
   }
 
-  pub async fn resume(&self) -> Result<(), ()> {
-    if !self.paused.load(Ordering::Relaxed) {
-      return Err(());
-    }
-    self.paused.swap(false,Ordering::Relaxed);
-    Ok(())
+  pub fn resume(&self) -> Result<(), ()> {
+    self.future_context.resume()
   }
 
-  pub async fn get_logs() -> String {
+  pub fn get_logs(&self) -> String {
     "".to_string()
   }
 }
 
 
 
-
+/*
 pub async fn start() {
-  // Download release.json
-  let mut dler = Downloader::new();
-  // Rank the mirrors
-  dler.rank_mirrors().pausable(Arc::new(AtomicBool::new(false))).await;
-  // Download instructions.json
 
-  // Sort instructions.json to be in groups.
+  async {
+    // Download release.json
+    if self.version_and_mirror_info.is_empty() {
+      self.version_and_mirror_info = download_single_file();
+    }
 
-  // For each group:
-  //   - check whether one of the files has a file matching with the new hash
-  //   - otherwise with the old hash.
-  //   - If no new hash exists:
-  //     - Download delta or full file
-  //     - Patch an old file
-  //   - copy over the rest of the files
+    // Download instructions.json, however only if it hasn't been downloaded yet
+    let instructions : Vec<Instruction> = download_instructions().await;
 
-  // 
+    // Sort instructions.json to be in groups.
+    let instructions : Vec<InstructionGroup> = instructions.sort();
+
+
+    // For each group:
+    //   - check whether one of the files has a file matching with the new hash
+    //   - otherwise with the old hash.
+    //   - If no new hash exists:
+    //     - Download delta or full file
+    //     - Patch an old file
+    //   - copy over the rest of the files
+
+    // 
+  }.pausable().await
+
 }
-
+*/
 
 
 
@@ -1027,6 +1041,33 @@ mod tests {
     });
     rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
   }
+
+
+  #[test]
+   fn patcher() {
+
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let result = rt.enter(|| {
+      rt.spawn(async {
+        println!("Executing Patcher::start");
+        let patcher = Patcher::start("renegadex_location: String".to_string(), "".to_string()).await;
+        println!("Executed Patcher::start");
+        tokio::time::delay_for(tokio::time::Duration::from_secs(2)).await;
+
+        patcher.pause();
+        println!("paused");
+
+        tokio::time::delay_for(tokio::time::Duration::from_secs(15)).await;
+        
+        patcher.resume();
+        println!("resumed");
+        tokio::time::delay_for(tokio::time::Duration::from_secs(5)).await;
+
+        println!("Waited for 15 seconds");
+      })
+    });
+    rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
+  }
   /*
   #[test]
   fn test_hash() {
@@ -1064,15 +1105,20 @@ mod tests {
     patcher.set_location("C:/RenegadeX/".to_string());
     patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
     let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    
+    let future_context = FutureContext {
+      waker: AtomicWaker::new(),
+      paused: AtomicBool::new(false),
+      cancelled: AtomicBool::new(false),
+    };
+
 
     let result = rt.enter(|| {
       rt.spawn(async move {
-        let paused = Arc::new(AtomicBool::new(true));
-
-        patcher.retrieve_mirrors().pausable(paused).await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
         patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
         patcher
-      })
+      }.pausable(Arc::new(future_context)))
     });
     let patcher = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
     println!("{:#?}", patcher);
