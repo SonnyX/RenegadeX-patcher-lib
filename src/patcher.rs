@@ -8,6 +8,7 @@ use std::ops::Deref;
 use std::panic;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 //Modules
 use crate::directory::Directory;
@@ -15,6 +16,7 @@ use crate::downloader::BufWriter;
 use crate::instructions::Instruction;
 use crate::mirrors::{Mirrors, Mirror, ResolverService};
 use crate::traits::{BorrowUnwrap, Error, ExpectUnwrap};
+use crate::pausable::{PausableTrait, Pausable};
 
 //External crates
 use rayon::prelude::*;
@@ -26,13 +28,18 @@ use hyper::client::{Client, HttpConnector};
 
 
 pub struct Patcher {
-  pub paused: bool,
+  pub paused: Arc<AtomicBool>,
+  pub logs: String,
 }
 
 impl Patcher {
+// information needed:
+//  renegadex_location: Option<String>,
+//  version_url: Option<String>,
   pub async fn start() -> Self {
       Self {
-        paused: false,
+        paused: Arc::new(AtomicBool::new(false)),
+        logs: "".to_string(),
       }
   }
 
@@ -40,19 +47,19 @@ impl Patcher {
     Ok(())
   }
 
-  pub async fn pause(mut self) -> Result<(), ()> {
-    if self.paused {
+  pub async fn pause(&self) -> Result<(), ()> {
+    if self.paused.load(Ordering::Relaxed) {
       return Err(());
     }
-    self.paused = true;
+    self.paused.swap(true, Ordering::Relaxed);
     Ok(())
   }
 
-  pub async fn resume(mut self) -> Result<(), ()> {
-    if !self.paused {
+  pub async fn resume(&self) -> Result<(), ()> {
+    if !self.paused.load(Ordering::Relaxed) {
       return Err(());
     }
-    self.paused = false;
+    self.paused.swap(false,Ordering::Relaxed);
     Ok(())
   }
 
@@ -64,9 +71,25 @@ impl Patcher {
 
 
 
+pub async fn start() {
+  // Download release.json
+  let mut dler = Downloader::new();
+  // Rank the mirrors
+  dler.rank_mirrors().pausable(Arc::new(AtomicBool::new(false))).await;
+  // Download instructions.json
 
+  // Sort instructions.json to be in groups.
 
+  // For each group:
+  //   - check whether one of the files has a file matching with the new hash
+  //   - otherwise with the old hash.
+  //   - If no new hash exists:
+  //     - Download delta or full file
+  //     - Patch an old file
+  //   - copy over the rest of the files
 
+  // 
+}
 
 
 
@@ -1044,7 +1067,9 @@ mod tests {
 
     let result = rt.enter(|| {
       rt.spawn(async move {
-        patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let paused = Arc::new(AtomicBool::new(true));
+
+        patcher.retrieve_mirrors().pausable(paused).await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
         patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
         patcher
       })
