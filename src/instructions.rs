@@ -7,13 +7,6 @@ use sha2::{Sha256, Digest};
 use crate::downloader::download_file;
 use crate::traits::*;
 
-
-pub(crate) struct InstructionGroup {
-  /// SHA256 hash of this file during current patch, None if the file is to be deleted
-  pub hash: Option<String>,
-  pub instructions: Vec<Instruction>,
-}
-
 pub struct HashMember {
   pub path: String,
   pub previous_hash: Option<String>,

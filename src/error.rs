@@ -1,6 +1,7 @@
 pub enum Error {
-    HashMismatch(),
-    DownloadTimeout(),
-    FileLocked(),
-    
+	DownloadTimeout(),
+	FileLocked(),
+	FutureWasPaused(),
+	FutureCancelled(),
+	HashMismatch(),
 }

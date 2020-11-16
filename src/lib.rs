@@ -25,5 +25,7 @@ pub mod patcher;
 pub mod traits;
 mod verify;
 mod pausable;
+mod instruction_group;
+mod hashes;
 
 pub use crate::patcher::Patcher;

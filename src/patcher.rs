@@ -17,48 +17,84 @@ use crate::instructions::Instruction;
 use crate::mirrors::{Mirrors, Mirror, ResolverService};
 use crate::traits::{BorrowUnwrap, Error, ExpectUnwrap};
 use crate::pausable::{PausableTrait, FutureContext};
+use crate::hashes::get_hash;
 
 //External crates
 use rayon::prelude::*;
 use ini::Ini;
 use log::*;
-use sha2::{Sha256, Digest};
 use http_body::Body;
 use hyper::client::{Client, HttpConnector};
 use futures::task::AtomicWaker;
+use futures::future::join_all;
 
 
 pub struct Patcher {
   pub future_context: Arc<FutureContext>,
   pub logs: String,
+  pub in_progress: Arc<AtomicBool>,
+  pub join_handle: tokio::task::JoinHandle<()>,
 }
 
 impl Patcher {
-// information needed:
-//  renegadex_location: Option<String>,
-//  version_url: Option<String>,
-  pub async fn start(renegadex_location: String, version_url: String) -> Self {
+
+  pub async fn get_remote_version() {
+
+  }
+
+  pub async fn start_validation() {
+
+  }
+
+  // information needed:
+  //  renegadex_location: Option<String>,
+  //  version_url: Option<String>,
+  pub async fn start_patching(renegadex_location: String, version_url: String) -> Self {
     let future_context = Arc::new(FutureContext { 
       paused: AtomicBool::new(false),
       waker: AtomicWaker::new(),
       cancelled: AtomicBool::new(false),
     });
     
-    tokio::task::spawn(async {
-      println!("Waiting for");
-
+    let join_handle = tokio::task::spawn(async {
       tokio::time::delay_for(tokio::time::Duration::from_secs(10)).await;
-      println!("Task executed");
+      /*
+      // Download release.json
+      if self.version_and_mirror_info.is_empty() {
+        self.version_and_mirror_info = download_single_file();
+      }
+
+      // Download instructions.json, however only if it hasn't been downloaded yet
+      let instructions : Vec<Instruction> = download_instructions().await;
+
+      // Sort instructions.json to be in groups.
+      let instructionGroups : Vec<InstructionGroup> = instructions.sort();
+
+      join_all(instructionGroups).pausable(future_context.clone()).await;
+      // For each group:
+      //   - check whether one of the files has a file matching with the new hash
+      //   - otherwise with the old hash.
+      //   - If no new hash exists:
+      //     - Download delta or full file
+      //     - Patch an old file
+      //   - copy over the rest of the files
+
+      // 
+      */
     }.pausable(future_context.clone()));
   
     Self {
         future_context,
         logs: "".to_string(),
+        in_progress: Arc::new(AtomicBool::new(true)),
+        join_handle
       }
   }
 
-  pub fn cancel(self) -> Result<(), ()> {
-    self.future_context.cancel()
+  pub async fn cancel(self) -> Result<(), ()> {
+    self.future_context.cancel()?;
+    self.join_handle.await;
+    Ok(())
   }
 
   pub fn pause(&self) -> Result<(), ()> {
@@ -413,66 +449,7 @@ impl Downloader {
     if self.instructions.is_empty() {
       self.retrieve_instructions().await?;
     }
-    let mut versioned_files = Directory {
-      name: "".into(),
-      subdirectories: Vec::new(),
-      files: Vec::new(),
-    };
-    let renegadex_path = std::path::PathBuf::from(self.renegadex_location.borrow());
-    for entry in self.instructions.iter() {
-      let mut path = &mut versioned_files;
-      let mut directory_iter = std::path::PathBuf::from(&entry.path).strip_prefix(&renegadex_path).unexpected(concat!(module_path!(),":",file!(),":",line!())).to_path_buf();
-      directory_iter.pop();
-      for directory in directory_iter.iter() {
-        path = path.get_or_create_subdirectory(directory.to_owned());
-      }
-      //path should be the correct directory now.
-      //thus add file to path.files
-      if entry.newest_hash.is_some() {
-        path.files.push(std::path::PathBuf::from(&entry.path).strip_prefix(&renegadex_path).unexpected(concat!(module_path!(),":",file!(),":",line!())).to_path_buf());
-      }
-    }
-    match std::fs::read_dir(&self.renegadex_location.borrow()) {
-      Ok(_) => {},
-      Err(_) => std::fs::create_dir_all(&self.renegadex_location.borrow()).unexpected(concat!(module_path!(),":",file!(),":",line!()))
-    }
-    let files = std::fs::read_dir(&self.renegadex_location.borrow()).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    for file in files {
-      let file = file.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      if file.file_type().unexpected(concat!(module_path!(),":",file!(),":",line!())).is_dir() {
-        if versioned_files.directory_exists(file.path().strip_prefix(&renegadex_path).unexpected(concat!(module_path!(),":",file!(),":",line!())).to_owned()) {
-          self.read_dir(&file.path(), &versioned_files, &renegadex_path)?;
-        } else {
-          info!("Remove directory: {:?}", &file.path());
-        }
-      } else {
-        info!("Remove file: {:?}", &file.path());
-        //doubt anything
-      }
-    }
-    Ok(())
-  }
-
-  fn read_dir(&self, dir: &std::path::Path, versioned_files: &Directory, renegadex_path: &std::path::PathBuf) -> Result<(),Error> {
-    let files = std::fs::read_dir(dir).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    for file in files {
-      let file = file.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      if file.file_type().unexpected(concat!(module_path!(),":",file!(),":",line!())).is_dir() {
-        if versioned_files.directory_exists(file.path().strip_prefix(&renegadex_path).unexpected(concat!(module_path!(),":",file!(),":",line!())).to_owned()) {
-          self.read_dir(&file.path(), versioned_files, renegadex_path)?;
-        } else {
-          info!("Removing directory: {:?}", &file.path());
-          std::fs::remove_dir_all(&file.path())?;
-        }
-      } else {
-        if !versioned_files.file_exists(file.path().strip_prefix(&renegadex_path).unexpected(concat!(module_path!(),":",file!(),":",line!())).to_owned()) {
-          info!("Removing file: {:?}", &file.path());
-          std::fs::remove_file(&file.path())?;
-        }
-        //doubt anything
-      }
-    }
-    Ok(())
+    crate::directory::remove_unversioned(&self.instructions, &self.renegadex_location.clone().unexpected("No RenX Location"))
   }
 
 /*
@@ -1010,15 +987,7 @@ fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<
 }
 
 
-///
-/// Opens a file and calculates it's SHA256 hash
-///
-fn get_hash(file_path: &str) -> Result<String, Error> {
-  let mut file = OpenOptions::new().read(true).open(file_path)?;
-  let mut sha256 = Sha256::new();
-  std::io::copy(&mut file, &mut sha256)?;
-  Ok(hex::encode_upper(sha256.result()))
-}
+
 
 #[cfg(test)]
 mod tests {
@@ -1050,7 +1019,7 @@ mod tests {
     let result = rt.enter(|| {
       rt.spawn(async {
         println!("Executing Patcher::start");
-        let patcher = Patcher::start("renegadex_location: String".to_string(), "".to_string()).await;
+        let patcher = Patcher::start_patching("renegadex_location: String".to_string(), "".to_string()).await;
         println!("Executed Patcher::start");
         tokio::time::delay_for(tokio::time::Duration::from_secs(2)).await;
 
