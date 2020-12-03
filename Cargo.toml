@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 json = "^0.12"
-sha2 = "^0.8"
+sha2 = "^0.9"
 hex = "^0.4"
 rust-ini = "^0.13"
 rayon = "^1.2"
