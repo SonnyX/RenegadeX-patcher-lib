@@ -57,7 +57,7 @@ impl Patcher {
     });
     
     let join_handle = tokio::task::spawn(async {
-      tokio::time::delay_for(tokio::time::Duration::from_secs(10)).await;
+      tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
       /*
       // Download release.json
       if self.version_and_mirror_info.is_empty() {
@@ -844,25 +844,24 @@ impl Downloader {
     req = req.uri(url).header("User-Agent", "sonny-launcher/1.0");
     let req = req.body(hyper::Body::empty()).unexpected(concat!(module_path!(),":",file!(),":",line!()));
     // Send the request
-    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    let result = rt.enter(|| {
-      rt.spawn(async move {
-        let res = client.request(req).await?;
-        // Was the request succesfull?
-        let status = res.status();
-        if status == 200 || status == 206 {
-          // The request is succesfull, iterate over the chunks and write them to the writer.
-          let mut body = res.into_body();
-          while !body.is_end_stream() {
-            let chunk = tokio::time::timeout(Duration::from_secs(10), body.next()).await.unexpected("Timed out").unexpected("Error while unwrapping chunk, corrupted data?")?;
-            writer.write_all(&chunk).unexpected("Writer encountered an error");
-          }
-          Ok(writer.flush()?)
-        } else {
-          error!("Unexpected response: found status code {}!", status);
-          Err(format!("Unexpected response: found status code {}!", status).into())
+    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let _guard = rt.enter();
+    let result = rt.spawn(async move {
+      let res = client.request(req).await?;
+      // Was the request succesfull?
+      let status = res.status();
+      if status == 200 || status == 206 {
+        // The request is succesfull, iterate over the chunks and write them to the writer.
+        let mut body = res.into_body();
+        while !body.is_end_stream() {
+          let chunk = tokio::time::timeout(Duration::from_secs(10), body.next()).await.unexpected("Timed out").unexpected("Error while unwrapping chunk, corrupted data?")?;
+          writer.write_all(&chunk).unexpected("Writer encountered an error");
         }
-      })
+        Ok(writer.flush()?)
+      } else {
+        error!("Unexpected response: found status code {}!", status);
+        Err(format!("Unexpected response: found status code {}!", status).into())
+      }
     });
     rt.block_on(result).unexpected(concat!(module_path!(),":",file!(),":",line!()))
   }
@@ -996,17 +995,16 @@ mod tests {
   #[test]
    fn downloader() {
 
-    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
-    let result = rt.enter(|| {
-      rt.spawn(async {
-        let mut patcher : super::Downloader = super::Downloader::new();
-        patcher.set_location("C:/RenegadeX/".to_string());
-        patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());    
-        patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        patcher.remove_unversioned().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        //patcher.download().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      })
+    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let _guard = rt.enter();
+    rt.spawn(async {
+      let mut patcher : super::Downloader = super::Downloader::new();
+      patcher.set_location("C:/RenegadeX/".to_string());
+      patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());    
+      patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      patcher.remove_unversioned().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      //patcher.download().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
     });
     rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
   }
@@ -1015,25 +1013,24 @@ mod tests {
   #[test]
    fn patcher() {
 
-    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
-    let result = rt.enter(|| {
-      rt.spawn(async {
-        println!("Executing Patcher::start");
-        let patcher = Patcher::start_patching("renegadex_location: String".to_string(), "".to_string()).await;
-        println!("Executed Patcher::start");
-        tokio::time::delay_for(tokio::time::Duration::from_secs(2)).await;
+    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let _guard = rt.enter();
+    let result = rt.spawn(async {
+      println!("Executing Patcher::start");
+      let patcher = Patcher::start_patching("renegadex_location: String".to_string(), "".to_string()).await;
+      println!("Executed Patcher::start");
+      tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-        patcher.pause();
-        println!("paused");
+      patcher.pause();
+      println!("paused");
 
-        tokio::time::delay_for(tokio::time::Duration::from_secs(15)).await;
-        
-        patcher.resume();
-        println!("resumed");
-        tokio::time::delay_for(tokio::time::Duration::from_secs(5)).await;
+      tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+      
+      patcher.resume();
+      println!("resumed");
+      tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
-        println!("Waited for 15 seconds");
-      })
+      println!("Waited for 15 seconds");
     });
     rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
   }
@@ -1073,7 +1070,7 @@ mod tests {
     let mut patcher : super::Downloader = super::Downloader::new();
     patcher.set_location("C:/RenegadeX/".to_string());
     patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
-    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     
     let future_context = FutureContext {
       waker: AtomicWaker::new(),
@@ -1081,14 +1078,12 @@ mod tests {
       cancelled: AtomicBool::new(false),
     };
 
-
-    let result = rt.enter(|| {
-      rt.spawn(async move {
-        patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        patcher
-      }.pausable(Arc::new(future_context)))
-    });
+    let _guard = rt.enter();
+    let result = rt.spawn(async move {
+      patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      patcher
+    }.pausable(Arc::new(future_context)));
     let patcher = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
     println!("{:#?}", patcher);
     let file : Vec<u8> = vec![];

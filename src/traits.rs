@@ -89,9 +89,9 @@ impl From<std::io::Error> for Error {
   }
 }
 
-impl From<tokio::time::Elapsed> for Error {
+impl From<tokio::time::error::Elapsed> for Error {
   #[inline(always)]
-  fn from(error: tokio::time::Elapsed) -> Self {
+  fn from(error: tokio::time::error::Elapsed) -> Self {
     Self {
       details: format!("{}", error),
       remove_mirror: true

@@ -6,6 +6,7 @@ use std::time::Duration;
 use sha2::{Sha256, Digest};
 use crate::downloader::download_file;
 use crate::traits::*;
+use std::io::Write;
 
 pub struct HashMember {
   pub path: String,
@@ -52,15 +53,15 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut 
       let url = format!("{}/instructions.json", &mirror.address);
 
       let mut text = download_file(url, Duration::from_secs(60)).await?;
-      let text = text.text()?;
+      let bytes = text.as_ref();
       // check instructions hash
       let mut sha256 = Sha256::new();
-      sha256.input(&text);
-      let hash = hex::encode_upper(sha256.result());
+      sha256.write(&bytes);
+      let hash = hex::encode_upper(sha256.finalize());
       if &hash != mirrors.instructions_hash.borrow() {
         Err(format!("Hash of instructions.json ({}) did not match the one specified in release.json ({})!", &hash, mirrors.instructions_hash.borrow()).into())
       } else {
-        *instructions_mutex.lock().unexpected(concat!(module_path!(),":",file!(),":",line!())) = text;
+        *instructions_mutex.lock().unexpected(concat!(module_path!(),":",file!(),":",line!())) = text.text()?;
         Ok(())
       }
     };

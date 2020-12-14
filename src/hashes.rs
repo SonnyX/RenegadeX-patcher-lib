@@ -11,5 +11,5 @@ pub(crate) fn get_hash(file_path: &str) -> Result<String, Error> {
 	let mut file = OpenOptions::new().read(true).open(file_path)?;
 	let mut sha256 = Sha256::new();
 	std::io::copy(&mut file, &mut sha256)?;
-	Ok(hex::encode_upper(sha256.result()))
+	Ok(hex::encode_upper(sha256.finalize()))
 }
