@@ -220,7 +220,7 @@ impl Downloader {
   pub fn get_launcher_info(&mut self) -> Option<crate::mirrors::LauncherInfo> {
     let ret = self.mirrors.launcher_info.clone();
     if ret.is_some() {
-      self.mirrors.launcher_info.as_mut().unexpected(concat!(module_path!(),":",file!(),":",line!())).prompted = true;
+      self.mirrors.launcher_info.as_mut().unexpected("").prompted = true;
     }
     ret
   }
@@ -284,7 +284,7 @@ impl Downloader {
     match std::fs::read_dir(patch_dir_path) {
       Ok(iter) => {
         if iter.count() != 0 {
-          let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+          let mut state = self.state.lock().unexpected("");
           state.update = Update::Resume;
           drop(state);
           return Ok(Update::Resume);
@@ -297,23 +297,23 @@ impl Downloader {
     let conf = match Ini::load_from_file(&path) {
       Ok(file) => file,
       Err(_e) => {
-        let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let mut state = self.state.lock().unexpected("");
         state.update = Update::Full;
         drop(state);
         return Ok(Update::Full);
       }
     };
 
-    let section = conf.section(Some("RenX_Game.Rx_Game".to_owned())).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    let game_version_number = section.get("GameVersionNumber").unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let section = conf.section(Some("RenX_Game.Rx_Game".to_owned())).unexpected("");
+    let game_version_number = section.get("GameVersionNumber").unexpected("");
 
     if self.mirrors.version_number.borrow() != game_version_number {
-      let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      let mut state = self.state.lock().unexpected("");
       state.update = Update::Delta;
       drop(state);
       return Ok(Update::Delta);
     }
-    let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let mut state = self.state.lock().unexpected("");
     state.update = Update::UpToDate;
     drop(state);
     Ok(Update::UpToDate)
@@ -325,7 +325,7 @@ impl Downloader {
   ///
   pub async fn download(&mut self) -> Result<(), Error> {
     // Reset progress
-    let mut progress = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let mut progress = self.state.lock().unexpected("");
     progress.update = Update::Unknown;
     progress.hashes_checked = (0,0);
     progress.download_size = (0,0);
@@ -348,9 +348,9 @@ impl Downloader {
     self.check_hashes()?;
     let child_process = self.check_patch_queue();
     self.download_files().await?;
-    child_process.join().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    child_process.join().unexpected("");
     //need to wait somehow for patch_queue to finish.
-    let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let mut state = self.state.lock().unexpected("");
     state.update = Update::UpToDate;
     drop(state);
     Ok(())
@@ -390,10 +390,10 @@ impl Downloader {
       match OpenOptions::new().read(true).open(&instruction.path) {
         Ok(_file) => {
           if instruction.newest_hash.is_some() {
-            let mut hash_queue = self.hash_queue.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+            let mut hash_queue = self.hash_queue.lock().unexpected("");
             hash_queue.push(instruction.clone());
             drop(hash_queue);
-            let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+            let mut state = self.state.lock().unexpected("");
             state.hashes_checked.1 += 1;
             drop(state);
           } else {
@@ -404,16 +404,16 @@ impl Downloader {
         Err(_e) => {
           if let Some(key) = &instruction.newest_hash {
             let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
-            let mut download_hashmap = self.download_hashmap.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+            let mut download_hashmap = self.download_hashmap.lock().unexpected("");
             if !download_hashmap.contains_key(key) {
               let download_entry = DownloadEntry {
                 file_path: delta_path.clone(),
                 file_size: instruction.full_vcdiff_size,
-                file_hash: instruction.full_vcdiff_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
+                file_hash: instruction.full_vcdiff_hash.clone().unexpected(""),
                 patch_entries: Vec::new(),
               };
               download_hashmap.insert(key.clone(), download_entry);
-              let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+              let mut state = self.state.lock().unexpected("");
               state.download_size.1 += instruction.full_vcdiff_size as u64;
               drop(state);
             }
@@ -423,9 +423,9 @@ impl Downloader {
               has_source: false,
               target_hash: key.clone(),
             };
-            download_hashmap.get_mut(key).unexpected(concat!(module_path!(),":",file!(),":",line!())).patch_entries.push(patch_entry); //should we add it to a downloadQueue??
+            download_hashmap.get_mut(key).unexpected("").patch_entries.push(patch_entry); //should we add it to a downloadQueue??
             drop(download_hashmap);
-            let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+            let mut state = self.state.lock().unexpected("");
             state.patch_files.1 += 1;
             drop(state);
           }
@@ -459,7 +459,7 @@ impl Downloader {
  *                         ----------------------------------   ------------------------------
  */
   fn check_hashes(&mut self) -> Result<(), Error> {
-    let hash_queue = self.hash_queue.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let hash_queue = self.hash_queue.lock().unexpected("");
     hash_queue.par_iter().for_each(|hash_entry| {
       let file_path_source = format!("{}.vcdiff_src", &hash_entry.path);
       let file_hash = match OpenOptions::new().read(true).open(&file_path_source) {
@@ -471,7 +471,7 @@ impl Downloader {
                 error!("Couldn't remove file before renaming .vcdiff_src...");
               },
             }
-            std::fs::rename(&file_path_source, &hash_entry.path).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+            std::fs::rename(&file_path_source, &hash_entry.path).unexpected("");
           } else {
             match std::fs::remove_file(&file_path_source) {
               Ok(()) => {
@@ -492,7 +492,7 @@ impl Downloader {
         //download patch file
         let key = format!("{}_from_{}", hash_entry.newest_hash.borrow(), hash_entry.previous_hash.borrow());
         let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
-        let mut download_hashmap = self.download_hashmap.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let mut download_hashmap = self.download_hashmap.lock().unexpected("");
         if !download_hashmap.contains_key(&key) {
           let download_entry = DownloadEntry {
             file_path: delta_path.clone(),
@@ -507,7 +507,7 @@ impl Downloader {
             patch_entries: Vec::new(),
           };
           download_hashmap.insert(key.clone(), download_entry);
-          let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+          let mut state = self.state.lock().unexpected("");
           state.download_size.1 += hash_entry.delta_vcdiff_size as u64;
           drop(state);
         }
@@ -516,17 +516,17 @@ impl Downloader {
           target_path: hash_entry.path.clone(),
           delta_path,
           has_source: true,
-          target_hash: hash_entry.newest_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
+          target_hash: hash_entry.newest_hash.clone().unexpected(""),
         };
-        download_hashmap.get_mut(&key).unexpected(concat!(module_path!(),":",file!(),":",line!())).patch_entries.push(patch_entry);
+        download_hashmap.get_mut(&key).unexpected("").patch_entries.push(patch_entry);
         drop(download_hashmap);
-        let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let mut state = self.state.lock().unexpected("");
         state.patch_files.1 += 1;
         state.hashes_checked.0 += 1;
         drop(state);
       } else if hash_entry.newest_hash.is_some() && &file_hash == hash_entry.newest_hash.borrow() {
         //this file is up to date
-        let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let mut state = self.state.lock().unexpected("");
         state.hashes_checked.0 += 1;
         drop(state);
       } else {
@@ -535,7 +535,7 @@ impl Downloader {
         trace!("No suitable patch file found for \"{}\", downloading full file!", &hash_entry.path);
         let key : &String = hash_entry.newest_hash.borrow();
         let delta_path = format!("{}patcher/{}", self.renegadex_location.borrow(), &key);
-        let mut download_hashmap = self.download_hashmap.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let mut download_hashmap = self.download_hashmap.lock().unexpected("");
         if !download_hashmap.contains_key(key) {
          let download_entry = DownloadEntry {
             file_path: delta_path.clone(),
@@ -550,7 +550,7 @@ impl Downloader {
             patch_entries: Vec::new(),
           };
           download_hashmap.insert(key.clone(), download_entry);
-          let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+          let mut state = self.state.lock().unexpected("");
           state.download_size.1 += hash_entry.full_vcdiff_size as u64;
           drop(state);
         }
@@ -559,17 +559,17 @@ impl Downloader {
           target_path: hash_entry.path.clone(),
           delta_path,
           has_source: false,
-          target_hash: hash_entry.newest_hash.clone().unexpected(concat!(module_path!(),":",file!(),":",line!())),
+          target_hash: hash_entry.newest_hash.clone().unexpected(""),
         };
-        download_hashmap.get_mut(key).unexpected(concat!(module_path!(),":",file!(),":",line!())).patch_entries.push(patch_entry);
+        download_hashmap.get_mut(key).unexpected("").patch_entries.push(patch_entry);
         drop(download_hashmap);
-        let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let mut state = self.state.lock().unexpected("");
         state.patch_files.1 += 1;
         state.hashes_checked.0 += 1;
         drop(state);
       }
     });
-    self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!())).finished_hash = true;
+    self.state.lock().unexpected("").finished_hash = true;
     Ok(())
   }
 
@@ -584,11 +584,11 @@ impl Downloader {
         runas::Command::new("RenegadeX-folder-permissions.exe")
         .arg(format!("($acl = Get-ACL {directory}).AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.WindowsIdentity]::GetCurrent().Name,\"FullControl\",\"Allow\"))); $acl | Set-ACL {directory}", directory=self.renegadex_location.borrow()))
         .gui(true).spawn().unexpected("Could not set Access Rule for RenegadeX directory: Process did not launch.").wait().unexpected("Could not set Access Rule for RenegadeX directory: Process exited unexpectedly.");
-        DirBuilder::new().recursive(true).create(&dir_path).unexpected(concat!(module_path!(),":",file!(),":",line!()))
+        DirBuilder::new().recursive(true).create(&dir_path).unexpected("")
       },
       _ => {}
     }
-    let download_hashmap = self.download_hashmap.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let download_hashmap = self.download_hashmap.lock().unexpected("");
     let mut sorted_downloads_by_size = Vec::from_iter(download_hashmap.deref());
     sorted_downloads_by_size.sort_unstable_by(|&(_, a), &(_,b)| b.file_size.cmp(&a.file_size));
     let mut handles = Vec::new();
@@ -635,7 +635,7 @@ impl Downloader {
     info!("Adding {} to patch queue", &key);
 
     //apply delta
-    let mut patch_queue = self.patch_queue.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let mut patch_queue = self.patch_queue.lock().unexpected("");
     patch_queue.push(download_entry.patch_entries.clone());
     drop(patch_queue);
     Ok(())
@@ -651,35 +651,35 @@ impl Downloader {
     let renegadex_location = self.renegadex_location.clone();
     let num_threads = num_cpus::get()-1;
     std::thread::spawn(move || {
-      let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unexpected("");
       pool.install(|| {
         rayon::scope(|s| {
           for _i in 0..num_threads {
             s.spawn(|_| {
-              let state = unlocked_state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+              let state = unlocked_state.lock().unexpected("");
               let mut patch_files = state.patch_files;
               drop(state);
               while patch_files.0 != patch_files.1 {
                 // Check for entry in patch_queue, get one, remove it, free the mutex, process entry.
                 let patch_entries : Option<Vec<PatchEntry>>;
                 {
-                  let mut patch_queue = patch_queue_unlocked.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+                  let mut patch_queue = patch_queue_unlocked.lock().unexpected("");
                   patch_entries = patch_queue.pop();
                   drop(patch_queue);
                 }
                 if patch_entries.is_some() {
                   patch_entries.borrow().par_iter().for_each(|patch_entry| {
                     //println!("Patching with diff file: {}", &patch_entry.delta_path);
-                    apply_patch(patch_entry, unlocked_state.clone()).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+                    apply_patch(patch_entry, unlocked_state.clone()).unexpected("");
                     //println!("Patching success: {}", &patch_entry.delta_path);
                   });
-                  std::fs::remove_file(patch_entries.borrow().first().unexpected(concat!(module_path!(),":",file!(),":",line!())).delta_path.clone()).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-                  let state = unlocked_state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+                  std::fs::remove_file(patch_entries.borrow().first().unexpected("").delta_path.clone()).unexpected("");
+                  let state = unlocked_state.lock().unexpected("");
                   patch_files = state.patch_files;
                   drop(state);
                 } else {
                   std::thread::sleep(std::time::Duration::from_millis(20));
-                  let state = unlocked_state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+                  let state = unlocked_state.lock().unexpected("");
                   patch_files = state.patch_files;
                   drop(state);
                 }
@@ -688,12 +688,12 @@ impl Downloader {
           }
         });
         {
-          let mut state = unlocked_state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+          let mut state = unlocked_state.lock().unexpected("");
           state.finished_patching = true;
           drop(state);
         }
         //remove patcher folder and all remaining files in there:
-        std::fs::remove_dir_all(format!("{}patcher/", renegadex_location.unexpected(concat!(module_path!(),":",file!(),":",line!())))).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        std::fs::remove_dir_all(format!("{}patcher/", renegadex_location.unexpected(""))).unexpected("");
       });
     })
   }
@@ -713,13 +713,13 @@ impl Downloader {
     //set the size of the file, add a 32bit integer to the end of the file as a means of tracking progress. We won't download parts async.
     let parts_amount : usize = download_entry.file_size / part_size + if download_entry.file_size % part_size > 0 {1} else {0};
     let file_size : usize = download_entry.file_size + 4;
-    if (f.metadata().unexpected(concat!(module_path!(),":",file!(),":",line!())).len() as usize) < file_size {
-      if f.metadata().unexpected(concat!(module_path!(),":",file!(),":",line!())).len() == (download_entry.file_size as u64) {
+    if (f.metadata().unexpected("").len() as usize) < file_size {
+      if f.metadata().unexpected("").len() == (download_entry.file_size as u64) {
         //If hash is correct, return.
         //Otherwise download again.
         let hash = get_hash(&download_entry.file_path)?;
         if hash == download_entry.file_hash {
-          let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+          let mut state = self.state.lock().unexpected("");
           state.download_size.0 += (download_entry.file_size) as u64;
           drop(state);
           return Ok(());
@@ -733,14 +733,14 @@ impl Downloader {
       }
     }
     //We have set up the file
-    f.seek(SeekFrom::Start(download_entry.file_size as u64)).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    f.seek(SeekFrom::Start(download_entry.file_size as u64)).unexpected("");
     let mut buf = [0,0,0,0];
-    f.read_exact(&mut buf).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    f.read_exact(&mut buf).unexpected("");
     let resume_part : usize = u32::from_be_bytes(buf) as usize;
     if resume_part != 0 { 
       info!("Resuming download \"{}\" from part {} out of {}", &download_entry.file_path, resume_part, parts_amount);
       if first_attempt {
-        let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let mut state = self.state.lock().unexpected("");
         state.download_size.0 += (part_size * resume_part) as u64;
         drop(state);
       }
@@ -750,7 +750,7 @@ impl Downloader {
     //Let's make sure the downloaded file matches the Hash found in Instructions.json
     let hash = get_hash(&download_entry.file_path)?;
     if hash != download_entry.file_hash {
-      let mut state = self.state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      let mut state = self.state.lock().unexpected("");
       state.download_size.0 -= download_entry.file_size as u64;
       drop(state);
       return Err(format!("File \"{}\"'s hash ({}) did not match with the one provided in Instructions.json ({})", &download_entry.file_path, &hash, &download_entry.file_hash).into());
@@ -777,7 +777,7 @@ impl Downloader {
       let mut old_hashes_checked : (u64, u64) = (0, 0);
       while !finished_patching {
         std::thread::sleep(std::time::Duration::from_millis(1000));
-        let state = state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        let state = state.lock().unexpected("");
         finished_hash = state.finished_hash;
         finished_patching = state.finished_patching;
         let download_size : (u64, u64) = state.download_size;
@@ -818,7 +818,7 @@ impl Downloader {
     let resolver_service = ResolverService::new(ip);
     let mut http_connector : HttpConnector<ResolverService> = HttpConnector::new_with_resolver(resolver_service);
     http_connector.enforce_http(false);
-    let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unexpected(concat!(module_path!(),":",file!(),":",line!())).into();
+    let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unexpected("").into();
     let https_connector : hyper_tls::HttpsConnector<HttpConnector<ResolverService>> = (http_connector, tls).into();
     let client = Client::builder().build::<_, hyper::Body>(https_connector);
 
@@ -827,13 +827,13 @@ impl Downloader {
     url.truncate(url.rfind('/').unexpected(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
     let url = format!("{}{}", url, relative_path);
     trace!("{}", &url);
-    let url = url.parse::<hyper::Uri>().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let url = url.parse::<hyper::Uri>().unexpected("");
     // Set up the request
     let mut req = hyper::Request::builder();
     req = req.uri(url).header("User-Agent", "sonny-launcher/1.0");
-    let req = req.body(hyper::Body::empty()).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let req = req.body(hyper::Body::empty()).unexpected("");
     // Send the request
-    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unexpected("");
     let _guard = rt.enter();
     let result = rt.spawn(async move {
       let res = client.request(req).await?;
@@ -852,7 +852,7 @@ impl Downloader {
         Err(format!("Unexpected response: found status code {}!", status).into())
       }
     });
-    rt.block_on(result).unexpected(concat!(module_path!(),":",file!(),":",line!()))
+    rt.block_on(result).unexpected("")
   }
 
   /// 
@@ -871,13 +871,13 @@ pub async fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mi
   let mut writer = BufWriter::new(f, move | file, total_written | {
     //When the buffer is being written to file, this closure gets executed
     let parts = *total_written / part_size as u64;
-    file.seek(SeekFrom::End(-4)).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    file.write_all(&(parts as u32).to_be_bytes()).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    file.seek(SeekFrom::Start(*total_written)).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    file.seek(SeekFrom::End(-4)).unexpected("");
+    file.write_all(&(parts as u32).to_be_bytes()).unexpected("");
+    file.seek(SeekFrom::Start(*total_written)).unexpected("");
   });
-  writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+  writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).unexpected("");
 
-  let url = download_url.parse::<hyper::Uri>().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+  let url = download_url.parse::<hyper::Uri>().unexpected("");
   let trunc_size = download_entry.file_size as u64;
 
   let mut req = hyper::Request::builder();
@@ -885,10 +885,10 @@ pub async fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mi
   if resume_part != 0 {
     req = req.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
   };
-  let req = req.body(hyper::Body::empty()).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+  let req = req.body(hyper::Body::empty()).unexpected("");
   let ip = mirror.ip.clone();
 
-  let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unexpected(concat!(module_path!(),":",file!(),":",line!())).into();
+  let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unexpected("").into();
   let resolver_service = ResolverService::new(ip);
   let mut http_connector : HttpConnector<ResolverService> = HttpConnector::new_with_resolver(resolver_service);
   http_connector.enforce_http(false);
@@ -908,8 +908,8 @@ pub async fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mi
         hyper::body::Bytes::new()
       }
     };
-    writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e)).unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    let mut state = unlocked_state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e)).unexpected("");
+    let mut state = unlocked_state.lock().unexpected("");
     state.download_size.0 += chunk.len() as u64;
     drop(state);
   }
@@ -935,7 +935,7 @@ pub fn convert(num: f64) -> String {
   }
   let delimiter = 1000_f64;
   let exponent = std::cmp::min((num.ln() / delimiter.ln()).floor() as i32, (units.len() - 1) as i32);
-  let pretty_bytes = format!("{:.2}", num / delimiter.powi(exponent)).parse::<f64>().unexpected(concat!(module_path!(),":",file!(),":",line!())) * 1_f64;
+  let pretty_bytes = format!("{:.2}", num / delimiter.powi(exponent)).parse::<f64>().unexpected("") * 1_f64;
   let unit = units[exponent as usize];
   format!("{}{} {}", negative, pretty_bytes, unit)
 }
@@ -949,13 +949,13 @@ pub fn convert(num: f64) -> String {
 ///```
 fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<(), Error> {
   let mut dir_path = patch_entry.target_path.clone();
-  dir_path.truncate(patch_entry.target_path.rfind('/').unexpected(concat!(module_path!(),":",file!(),":",line!())));
-  DirBuilder::new().recursive(true).create(dir_path).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+  dir_path.truncate(patch_entry.target_path.rfind('/').unexpected(""));
+  DirBuilder::new().recursive(true).create(dir_path).unexpected("");
   if patch_entry.has_source {
     let source_path = format!("{}.vcdiff_src", &patch_entry.target_path);
-    std::fs::rename(&patch_entry.target_path, &source_path).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    std::fs::rename(&patch_entry.target_path, &source_path).unexpected("");
     xdelta::decode_file(Some(&source_path), &patch_entry.delta_path, &patch_entry.target_path);
-    std::fs::remove_file(&source_path).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    std::fs::remove_file(&source_path).unexpected("");
   } else {
     //there is supposed to be no source file, so make sure it doesn't exist either!
     match std::fs::remove_file(&patch_entry.target_path) {
@@ -968,7 +968,7 @@ fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<
   if hash != patch_entry.target_hash {
     return Err(format!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash).into());
   }
-  let mut state = state.lock().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+  let mut state = state.lock().unexpected("");
   state.patch_files.0 += 1;
   drop(state);
   Ok(())
@@ -990,10 +990,10 @@ mod tests {
       let mut patcher : super::Downloader = super::Downloader::new();
       patcher.set_location("C:/RenegadeX/".to_string());
       patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());    
-      patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      patcher.remove_unversioned().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      //patcher.download().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      patcher.retrieve_mirrors().await.unexpected("");
+      patcher.rank_mirrors().await.unexpected("");
+      patcher.remove_unversioned().await.unexpected("");
+      //patcher.download().await.unexpected("");
     });
     rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
   }
@@ -1027,10 +1027,10 @@ mod tests {
   #[test]
   fn test_hash() {
     let mut mirrors = Mirrors::new();
-    mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").unexpected("");
     let mirror : Mirror = mirrors.get_mirror();
-    let file = OpenOptions::new().read(true).write(true).create(true).open("10kb_file").unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    file.set_len(10004).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let file = OpenOptions::new().read(true).write(true).create(true).open("10kb_file").unexpected("");
+    file.set_len(10004).unexpected("");
 
     let replace_from = mirror.address.rfind('/').unwrap_or_else(|| mirror.address.len());
     let mut download_url = format!("{}", mirror.address);
@@ -1062,8 +1062,8 @@ mod tests {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let _guard = rt.enter();
     let result = rt.spawn(async move {
-      patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-      patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+      patcher.retrieve_mirrors().await.unexpected("");
+      patcher.rank_mirrors().await.unexpected("");
       patcher
     }.pausable());
     let patcher = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
@@ -1080,8 +1080,8 @@ mod tests {
     let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
     let result = rt.enter(|| {
       rt.spawn(async move {
-        mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        mirrors.test_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
+        mirrors.get_mirrors("https://static.renegade-x.com/launcher_data/version/release.json").await.unexpected("");
+        mirrors.test_mirrors().await.unexpected("");
         mirrors
       })
     });
@@ -1094,8 +1094,8 @@ mod tests {
       mirror = mirrors.get_mirror();
     }
 
-    let file = OpenOptions::new().read(true).write(true).create(true).open("10kb_file").unexpected(concat!(module_path!(),":",file!(),":",line!()));
-    file.set_len(10004).unexpected(concat!(module_path!(),":",file!(),":",line!()));
+    let file = OpenOptions::new().read(true).write(true).create(true).open("10kb_file").unexpected("");
+    file.set_len(10004).unexpected("");
 
     let replace_from = mirror.address.rfind('/').unwrap_or_else(|| mirror.address.len());
     let mut download_url = format!("{}", mirror.address);

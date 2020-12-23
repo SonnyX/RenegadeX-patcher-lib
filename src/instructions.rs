@@ -61,7 +61,7 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut 
       if &hash != mirrors.instructions_hash.borrow() {
         Err(format!("Hash of instructions.json ({}) did not match the one specified in release.json ({})!", &hash, mirrors.instructions_hash.borrow()).into())
       } else {
-        *instructions_mutex.lock().unexpected(concat!(module_path!(),":",file!(),":",line!())) = text.text()?;
+        *instructions_mutex.lock().unexpected("") = text.text()?;
         Ok(())
       }
     };
@@ -75,7 +75,7 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut 
       mirrors.remove(mirror);
     }
   }
-  let instructions_text : String = instructions_mutex.into_inner().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+  let instructions_text : String = instructions_mutex.into_inner().unexpected("");
   let instructions_data = match json::parse(&instructions_text) {
     Ok(result) => result,
     Err(e) => return Err(format!("Invalid JSON: {}", e).into())
@@ -88,9 +88,9 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut 
       newest_hash:          instruction["NewHash"].as_string_option(),
       full_vcdiff_hash:     instruction["CompressedHash"].as_string_option(),
       delta_vcdiff_hash:    instruction["DeltaHash"].as_string_option(),
-      full_vcdiff_size:     instruction["FullReplaceSize"].as_usize().unexpected(concat!(module_path!(),":",file!(),":",line!())),
-      delta_vcdiff_size:    instruction["DeltaSize"].as_usize().unexpected(concat!(module_path!(),":",file!(),":",line!())),
-      has_delta:            instruction["HasDelta"].as_bool().unexpected(concat!(module_path!(),":",file!(),":",line!()))
+      full_vcdiff_size:     instruction["FullReplaceSize"].as_usize().unexpected(""),
+      delta_vcdiff_size:    instruction["DeltaSize"].as_usize().unexpected(""),
+      has_delta:            instruction["HasDelta"].as_bool().unexpected("")
     });
   });
   Ok(())

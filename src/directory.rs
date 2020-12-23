@@ -29,13 +29,7 @@ impl Directory {
       subdirectories: Vec::new(),
       files: Vec::new(),
     });
-    return self.subdirectories.last_mut().unexpected(concat!(
-      module_path!(),
-      ":",
-      file!(),
-      ":",
-      line!()
-    ));
+    return self.subdirectories.last_mut().unexpected("");
   }
 
   pub fn get_subdirectory(&self, name: OsString) -> Option<&Directory> {
@@ -63,10 +57,7 @@ impl Directory {
 
   pub fn file_exists(&self, file: PathBuf) -> bool {
     //split up path into an iter and push it to temporary path's, if it's all done then we're good
-    if file
-      .file_name()
-      .unexpected(concat!(module_path!(), ":", file!(), ":", line!()))
-      == "InstallInfo.xml"
+    if file.file_name().unexpected("") == "InstallInfo.xml"
     {
       return true;
     }
@@ -96,7 +87,7 @@ pub(crate) fn remove_unversioned(instructions: &Vec<Instruction>, renegadex_loca
     let mut path = &mut versioned_files;
     let mut directory_iter = std::path::PathBuf::from(&entry.path)
       .strip_prefix(&renegadex_path)
-      .unexpected(concat!(module_path!(), ":", file!(), ":", line!()))
+      .unexpected("")
       .to_path_buf();
     directory_iter.pop();
     for directory in directory_iter.iter() {
@@ -108,40 +99,28 @@ pub(crate) fn remove_unversioned(instructions: &Vec<Instruction>, renegadex_loca
       path.files.push(
         std::path::PathBuf::from(&entry.path)
           .strip_prefix(&renegadex_path)
-          .unexpected(concat!(module_path!(), ":", file!(), ":", line!()))
+          .unexpected("")
           .to_path_buf(),
       );
     }
   }
   match std::fs::read_dir(renegadex_location) {
     Ok(_) => {}
-    Err(_) => std::fs::create_dir_all(renegadex_location).unexpected(concat!(
-      module_path!(),
-      ":",
-      file!(),
-      ":",
-      line!()
-    )),
+    Err(_) => std::fs::create_dir_all(renegadex_location).unexpected(""),
   }
-  let files = std::fs::read_dir(renegadex_location).unexpected(concat!(
-    module_path!(),
-    ":",
-    file!(),
-    ":",
-    line!()
-  ));
+  let files = std::fs::read_dir(renegadex_location).unexpected("");
   for file in files {
-    let file = file.unexpected(concat!(module_path!(), ":", file!(), ":", line!()));
+    let file = file.unexpected("");
     if file
       .file_type()
-      .unexpected(concat!(module_path!(), ":", file!(), ":", line!()))
+      .unexpected("")
       .is_dir()
     {
       if versioned_files.directory_exists(
         file
           .path()
           .strip_prefix(&renegadex_path)
-          .unexpected(concat!(module_path!(), ":", file!(), ":", line!()))
+          .unexpected("")
           .to_owned(),
       ) {
         read_dir(&file.path(), &versioned_files, &renegadex_path)?;
@@ -162,19 +141,19 @@ fn read_dir(
   renegadex_path: &std::path::PathBuf,
 ) -> Result<(), Error> {
   let files =
-    std::fs::read_dir(dir).unexpected(concat!(module_path!(), ":", file!(), ":", line!()));
+    std::fs::read_dir(dir).unexpected("");
   for file in files {
-    let file = file.unexpected(concat!(module_path!(), ":", file!(), ":", line!()));
+    let file = file.unexpected("");
     if file
       .file_type()
-      .unexpected(concat!(module_path!(), ":", file!(), ":", line!()))
+      .unexpected("")
       .is_dir()
     {
       if versioned_files.directory_exists(
         file
           .path()
           .strip_prefix(&renegadex_path)
-          .unexpected(concat!(module_path!(), ":", file!(), ":", line!()))
+          .unexpected("")
           .to_owned(),
       ) {
         read_dir(&file.path(), versioned_files, renegadex_path)?;
@@ -187,7 +166,7 @@ fn read_dir(
         file
           .path()
           .strip_prefix(&renegadex_path)
-          .unexpected(concat!(module_path!(), ":", file!(), ":", line!()))
+          .unexpected("")
           .to_owned(),
       ) {
         info!("Removing file: {:?}", &file.path());
