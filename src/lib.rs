@@ -28,5 +28,3 @@ mod pausable;
 mod instruction_group;
 mod hashes;
 mod filesystem;
-
-pub use crate::patcher::Patcher;

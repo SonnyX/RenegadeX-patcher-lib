@@ -5,8 +5,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{channel, Sender, Receiver};
 
 struct Chunk {
+  /// The file the chunk belongs to
   file: OsString,
+  /// The part containing the data and the starting position of this data.
   part: Part,
+  /// Is this chunk the last chunk of this file?
+  is_last: bool
 }
 struct Part {
   start_location: usize,
@@ -15,9 +19,14 @@ struct Part {
 
 // Set up a singular task which takes care of writing data to disk
 struct FileSystem {
-  parts: BTreeMap<OsString, VecDeque<Part>>
+  parts: BTreeMap<OsString, VecDeque<Part>>,
+  use_memory_only: bool,
 }
 
+
+// what I want to happen is:
+// Have a loop somewhere that is responsible for receiving parts from elsewhere, add them to a hashmap.
+// Have a loop somewhere that is responsible for writing parts of which the most is available, however, we don't want to run all the time.
 impl FileSystem {
   pub async fn receive_parts(&mut self, mut receiver: Receiver<Chunk>) {
     while let Some(chunk) = receiver.recv().await {

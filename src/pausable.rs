@@ -1,9 +1,11 @@
 use std::task::{ Context, Poll };
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use futures::task::AtomicWaker;
+
+pub static FUTURE_CONTEXT : FutureContext = FutureContext { paused: AtomicBool::new(false), waker: AtomicWaker::new(), cancelled: AtomicBool::new(false) };
 
 pub struct FutureContext {
   pub paused: AtomicBool,
@@ -37,29 +39,27 @@ impl FutureContext {
 }
 
 pub trait PausableTrait<B, A: Future<Output = B>> {
-  fn pausable(self, future_context: Arc<FutureContext>) -> Pausable<B, A>;
+  fn pausable(self) -> Pausable<B, A>;
 }
 
 impl<B, A: Future<Output = B>> PausableTrait<B, A> for A {
-  fn pausable(self, future_context: Arc<FutureContext>) -> Pausable<B, A> {
+  fn pausable(self) -> Pausable<B, A> {
     Pausable {
       future: self,
-      future_context
     }
   }
 }
 
 pub struct Pausable<B, A: Future<Output = B>> {
   future: A,
-  future_context: Arc<FutureContext>,
 }
 
 impl<B, A: Future<Output = B>> Future for Pausable<B, A> {
   type Output = B;
 
   fn poll(mut self: Pin<&mut Self>, wake: &mut Context<'_>) -> Poll<Self::Output> {
-    if self.future_context.paused.load(Ordering::Relaxed) {
-      self.future_context.waker.register(wake.waker());
+    if FUTURE_CONTEXT.paused.load(Ordering::Relaxed) {
+      FUTURE_CONTEXT.waker.register(wake.waker());
       return Poll::Pending;
     }
     // I copied this code from Stack Overflow without reading the text that

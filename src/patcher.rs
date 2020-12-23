@@ -11,12 +11,11 @@ use std::time::Duration;
 use std::sync::atomic::AtomicBool;
 
 //Modules
-use crate::directory::Directory;
 use crate::downloader::BufWriter;
 use crate::instructions::Instruction;
 use crate::mirrors::{Mirrors, Mirror, ResolverService};
 use crate::traits::{BorrowUnwrap, Error, ExpectUnwrap};
-use crate::pausable::{PausableTrait, FutureContext};
+use crate::pausable::PausableTrait;
 use crate::hashes::get_hash;
 
 //External crates
@@ -26,11 +25,8 @@ use log::*;
 use http_body::Body;
 use hyper::client::{Client, HttpConnector};
 use futures::task::AtomicWaker;
-use futures::future::join_all;
-
 
 pub struct Patcher {
-  pub future_context: Arc<FutureContext>,
   pub logs: String,
   pub in_progress: Arc<AtomicBool>,
   pub join_handle: tokio::task::JoinHandle<()>,
@@ -50,12 +46,6 @@ impl Patcher {
   //  renegadex_location: Option<String>,
   //  version_url: Option<String>,
   pub async fn start_patching(renegadex_location: String, version_url: String) -> Self {
-    let future_context = Arc::new(FutureContext { 
-      paused: AtomicBool::new(false),
-      waker: AtomicWaker::new(),
-      cancelled: AtomicBool::new(false),
-    });
-    
     let join_handle = tokio::task::spawn(async {
       tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
       /*
@@ -70,7 +60,7 @@ impl Patcher {
       // Sort instructions.json to be in groups.
       let instructionGroups : Vec<InstructionGroup> = instructions.sort();
 
-      join_all(instructionGroups).pausable(future_context.clone()).await;
+      join_all(instructionGroups).pausable().await;
       // For each group:
       //   - check whether one of the files has a file matching with the new hash
       //   - otherwise with the old hash.
@@ -81,10 +71,9 @@ impl Patcher {
 
       // 
       */
-    }.pausable(future_context.clone()));
+    }.pausable());
   
     Self {
-        future_context,
         logs: "".to_string(),
         in_progress: Arc::new(AtomicBool::new(true)),
         join_handle
@@ -92,17 +81,17 @@ impl Patcher {
   }
 
   pub async fn cancel(self) -> Result<(), ()> {
-    self.future_context.cancel()?;
+    crate::pausable::FUTURE_CONTEXT.cancel()?;
     self.join_handle.await;
     Ok(())
   }
 
   pub fn pause(&self) -> Result<(), ()> {
-    self.future_context.pause()
+    crate::pausable::FUTURE_CONTEXT.pause()
   }
 
   pub fn resume(&self) -> Result<(), ()> {
-    self.future_context.resume()
+    crate::pausable::FUTURE_CONTEXT.resume()
   }
 
   pub fn get_logs(&self) -> String {
@@ -995,9 +984,9 @@ mod tests {
   #[test]
    fn downloader() {
 
-    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let _guard = rt.enter();
-    rt.spawn(async {
+    let result = rt.spawn(async {
       let mut patcher : super::Downloader = super::Downloader::new();
       patcher.set_location("C:/RenegadeX/".to_string());
       patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());    
@@ -1013,7 +1002,7 @@ mod tests {
   #[test]
    fn patcher() {
 
-    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let _guard = rt.enter();
     let result = rt.spawn(async {
       println!("Executing Patcher::start");
@@ -1070,20 +1059,13 @@ mod tests {
     let mut patcher : super::Downloader = super::Downloader::new();
     patcher.set_location("C:/RenegadeX/".to_string());
     patcher.set_version_url("https://static.renegade-x.com/launcher_data/version/release.json".to_string());
-    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-    
-    let future_context = FutureContext {
-      waker: AtomicWaker::new(),
-      paused: AtomicBool::new(false),
-      cancelled: AtomicBool::new(false),
-    };
-
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let _guard = rt.enter();
     let result = rt.spawn(async move {
       patcher.retrieve_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
       patcher.rank_mirrors().await.unexpected(concat!(module_path!(),":",file!(),":",line!()));
       patcher
-    }.pausable(Arc::new(future_context)));
+    }.pausable());
     let patcher = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
     println!("{:#?}", patcher);
     let file : Vec<u8> = vec![];
