@@ -10,7 +10,7 @@ sha2 = "0.9"
 hex = "0.4"
 rust-ini = "0.16"
 rayon = "1.2"
-rand = "0.7"
+rand = "0.8"
 xdelta = { git = "https://github.com/SonnyX/xdelta-decoder-rust.git" }
 num_cpus = "1.11"
 #hyper = { version = "0.14", features = ["full"] } # will have to wait until hyper-tls, and other tokio & hyper packages have been updated.
