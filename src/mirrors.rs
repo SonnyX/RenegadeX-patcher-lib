@@ -7,6 +7,7 @@ use std::future::Future;
 
 use crate::downloader::download_file;
 use crate::traits::{AsString,Error,ExpectUnwrap};
+use futures::future::join_all;
 use hyper::client::connect::dns::Name;
 use log::{error,trace};
 
@@ -19,6 +20,51 @@ pub struct Mirror {
   pub error_count: Arc<Mutex<u16>>,
   pub enabled: Arc<Mutex<bool>>,
   pub ip: SocketAddrs,
+}
+
+impl Mirror {
+  async fn test_mirror(self) -> Mirror {
+    let start = Instant::now();
+    let mut url = format!("{}", self.address.to_owned());
+    url.truncate(url.rfind('/').unexpected(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
+    url.push_str("10kb_file");
+    let download_response = download_file(url, Duration::from_secs(2)).await;
+    match download_response {
+      Ok(result) => {
+        let duration = start.elapsed();
+        let content_length = result.headers().get("content-length");
+        if content_length.is_none() || content_length.unexpected("mirrors.rs: Couldn't unwrap content_length") != "10000" {
+          Mirror { 
+            address: self.address,
+            ip: self.ip,
+            speed: 0.0,
+            ping: 1000.0,
+            error_count: Arc::new(Mutex::new(0)),
+            enabled: Arc::new(Mutex::new(false)),
+          }
+        } else {
+          Mirror { 
+            address: self.address,
+            ip: self.ip,
+            speed: 10_000.0/(duration.as_millis() as f64),
+            ping: (duration.as_micros() as f64)/1000.0,
+            error_count: Arc::new(Mutex::new(0)),
+            enabled: Arc::new(Mutex::new(true)),
+          }
+        }
+      },
+      Err(_e) => {
+        Mirror { 
+          address: self.address,
+          ip: self.ip,
+          speed: 0.0,
+          ping: 1000.0,
+          error_count: Arc::new(Mutex::new(0)),
+          enabled: Arc::new(Mutex::new(false)),
+        }
+      }
+    }
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -64,9 +110,9 @@ impl tower::Service<Name> for ResolverService {
   type Response = SocketAddrs;
   type Error = Error;
   // We can't "name" an `async` generated future.
-  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send >>;
+  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Error>> + Send >>;
 
-  fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
+  fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> Poll<Result<(), Error>> {
       // This connector is always ready, but others might not be.
       Poll::Ready(Ok(()))
   }
@@ -88,7 +134,7 @@ impl Iterator for SocketAddrs {
   }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LauncherInfo {
   pub version_name: String,
   pub version_number: usize,
@@ -97,6 +143,7 @@ pub struct LauncherInfo {
   pub prompted: bool,
 }
 
+#[derive(Debug)]
 pub struct Mirrors {
   pub mirrors: Vec<Mirror>,
   pub instructions_hash: Option<String>,
@@ -146,8 +193,8 @@ impl Mirrors {
   /**
   Downloads release.json from the renegade-x server and adds it to the struct
   */
-  pub fn get_mirrors(&mut self, location: &str) -> Result<(), Error> {
-    let mut release_json = match download_file(location.to_string(), Duration::from_secs(10)) {
+  pub async fn get_mirrors(&mut self, location: &str) -> Result<(), Error> {
+    let mut release_json = match download_file(location.to_string(), Duration::from_secs(10)).await {
       Ok(result) => result,
       Err(e) => return Err(format!("Is your internet down? {}", e).into())
     };
@@ -205,55 +252,14 @@ impl Mirrors {
   /**
   Checks the speed on the mirrors again
   */
-  pub fn test_mirrors(&mut self) -> Result<(), Error> {
+  pub async fn test_mirrors(&mut self) -> Result<(), Error> {
     let mut handles = Vec::new();
     for i in 0..self.mirrors.len() {
       let mirror = self.mirrors[i].clone();
-      handles.push(std::thread::spawn(move || -> Mirror {
-        let start = Instant::now();
-        let mut url = format!("{}", mirror.address.to_owned());
-        url.truncate(url.rfind('/').unexpected(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
-        url.push_str("10kb_file");
-        let download_response = download_file(url, Duration::from_secs(2));
-        match download_response {
-          Ok(result) => {
-            let duration = start.elapsed();
-            let content_length = result.headers().get("content-length");
-            if content_length.is_none() || content_length.unexpected("mirrors.rs: Couldn't unwrap content_length") != "10000" {
-              Mirror { 
-                address: mirror.address,
-                ip: mirror.ip,
-                speed: 0.0,
-                ping: 1000.0,
-                error_count: Arc::new(Mutex::new(0)),
-                enabled: Arc::new(Mutex::new(false)),
-              }
-            } else {
-              Mirror { 
-                address: mirror.address,
-                ip: mirror.ip,
-                speed: 10_000.0/(duration.as_millis() as f64),
-                ping: (duration.as_micros() as f64)/1000.0,
-                error_count: Arc::new(Mutex::new(0)),
-                enabled: Arc::new(Mutex::new(true)),
-              }
-            }
-          },
-          Err(_e) => {
-            Mirror { 
-              address: mirror.address,
-              ip: mirror.ip,
-              speed: 0.0,
-              ping: 1000.0,
-              error_count: Arc::new(Mutex::new(0)),
-              enabled: Arc::new(Mutex::new(false)),
-            }
-          }
-        }
-      }));
+      handles.push(mirror.test_mirror());
     }
-    for handle in handles {
-      let mirror = handle.join().unexpected("mirrors.rs: Failed to execute thread in test_mirrors!");
+    let mirrors = join_all(handles).await;
+    for mirror in mirrors {
       for i in 0..self.mirrors.len() {
         if self.mirrors[i].address == mirror.address {
           self.mirrors[i] = mirror;
