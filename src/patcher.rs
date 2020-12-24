@@ -24,7 +24,6 @@ use ini::Ini;
 use log::*;
 use http_body::Body;
 use hyper::client::{Client, HttpConnector};
-use futures::task::AtomicWaker;
 
 pub struct Patcher {
   pub logs: String,
@@ -82,7 +81,7 @@ impl Patcher {
 
   pub async fn cancel(self) -> Result<(), ()> {
     crate::pausable::FUTURE_CONTEXT.cancel()?;
-    self.join_handle.await;
+    let _ = self.join_handle.await;
     Ok(())
   }
 
@@ -833,7 +832,7 @@ impl Downloader {
     req = req.uri(url).header("User-Agent", "sonny-launcher/1.0");
     let req = req.body(hyper::Body::empty()).unexpected("");
     // Send the request
-    let mut rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unexpected("");
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unexpected("");
     let _guard = rt.enter();
     let result = rt.spawn(async move {
       let res = client.request(req).await?;
@@ -979,7 +978,7 @@ fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+    use super::*;
 
   #[test]
    fn downloader() {
@@ -1000,7 +999,7 @@ mod tests {
 
 
   #[test]
-   fn patcher() {
+   fn patcher() -> Result<(), ()> {
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let _guard = rt.enter();
@@ -1010,18 +1009,19 @@ mod tests {
       println!("Executed Patcher::start");
       tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-      patcher.pause();
+      patcher.pause()?;
       println!("paused");
 
       tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
       
-      patcher.resume();
+      patcher.resume()?;
       println!("resumed");
       tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
       println!("Waited for 15 seconds");
+      Ok::<(), ()>(())
     });
-    rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().");
+    rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().")
   }
   /*
   #[test]
