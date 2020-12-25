@@ -1493,8 +1493,8 @@ dependencies = [
 
 [[package]]
 name = "xdelta"
-version = "0.1.0"
-source = "git+https://github.com/SonnyX/xdelta-decoder-rust.git#5b9bab14f1a3f0e3919825c2ec1cd951d2213155"
+version = "0.1.1"
+source = "git+https://github.com/SonnyX/xdelta-decoder-rust.git#72ab9a9b3b4c80743c27e300e6232b89aa285452"
 dependencies = [
  "lzma-sys",
 ]
