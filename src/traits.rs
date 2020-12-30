@@ -54,36 +54,62 @@ impl<T> BorrowUnwrap<T> for Option<T> {
 
 #[derive(Debug)]
 pub struct Error {
-  details: String,
+  inner: Box<dyn std::error::Error + Send + Sync>,
   pub remove_mirror: bool
 }
 
-impl Error {
-    #[inline(always)]
-    pub const fn new(msg: String) -> Error {
-        Error { 
-            details: msg,
-            remove_mirror: false
-        }
-    }
+#[derive(Debug)]
+pub struct StringError {
+  details: String
 }
 
-impl std::fmt::Display for Error {
+impl std::fmt::Display for StringError {
   #[inline(always)]
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(f,"{}", self.details)
   }
 }
 
+impl std::error::Error for StringError {}
+
+impl Error {
+    #[inline(always)]
+    pub fn new(msg: String) -> Error {
+      let error = Box::new(StringError { 
+        details: msg
+    });
+      Error {
+        inner: error,
+        remove_mirror: false
+      }
+    }
+}
+
+impl std::fmt::Display for Error {
+  #[inline(always)]
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(f,"{}", self.inner)
+  }
+}
+
 
 impl std::error::Error for Error {}
 
+impl From<Box<dyn std::error::Error + Send + Sync>> for Error {
+  #[inline(always)]
+  fn from(error: Box<dyn std::error::Error + Send + Sync>) -> Self {
+    Self {
+      inner: error,
+      remove_mirror: false
+    }
+  }
+}
 
 impl From<std::io::Error> for Error {
   #[inline(always)]
   fn from(error: std::io::Error) -> Self {
     Self {
-      details: format!("{}", error),
+      inner: Box::new(error),
       remove_mirror: false
     }
   }
@@ -93,7 +119,7 @@ impl From<tokio::time::error::Elapsed> for Error {
   #[inline(always)]
   fn from(error: tokio::time::error::Elapsed) -> Self {
     Self {
-      details: format!("{}", error),
+      inner: Box::new(error),
       remove_mirror: true
     }
   }
@@ -103,7 +129,7 @@ impl From<std::string::FromUtf8Error> for Error {
   #[inline(always)]
   fn from(error: std::string::FromUtf8Error) -> Self {
     Self {
-      details: format!("{}", error),
+      inner: Box::new(error),
       remove_mirror: false
     }
   }
@@ -121,35 +147,24 @@ impl From<tokio::timer::timeout::Error<hyper::Error>> for Error {
   }
 }
 */
-impl From<http::Error> for Error {
+impl From<download_async::http::Error> for Error {
   #[inline(always)]
-  fn from(error: http::Error) -> Self {
+  fn from(error: download_async::http::Error) -> Self {
     error!("http::Error: {:#?}", error);
     Self {
-      details: format!("{}", error),
+      inner: Box::new(error),
       remove_mirror: false
     }
   }
 }
 
-impl From<http::uri::InvalidUri> for Error {
+impl From<download_async::http::uri::InvalidUri> for Error {
   #[inline(always)]
-  fn from(error: http::uri::InvalidUri) -> Self {
+  fn from(error: download_async::http::uri::InvalidUri) -> Self {
     error!("http::uri::InvalidUri: {:#?}", error);
     Self {
-      details: format!("{}", error),
+      inner: Box::new(error),
       remove_mirror: false
-    }
-  }
-}
-
-impl From<hyper::Error> for Error {
-  #[inline(always)]
-  fn from(error: hyper::Error) -> Self {
-    error!("hyper::Error: {:#?}", error);
-    Self {
-      details: format!("{}", error),
-      remove_mirror: error.is_user()
     }
   }
 }
@@ -158,7 +173,9 @@ impl From<std::string::String> for Error {
   #[inline(always)]
   fn from(string: String) -> Self {
     Error {
-      details: string,
+      inner: Box::new(StringError {
+        details: string
+      }),
       remove_mirror: false
     }
   }
@@ -168,7 +185,9 @@ impl From<&str> for Error {
   #[inline(always)]
   fn from(string: &str) -> Self {
     Error {
-      details: string.to_string(),
+      inner: Box::new(StringError {
+        details: string.to_owned()
+      }),
       remove_mirror: true
     }
   }

@@ -1,5 +1,4 @@
 //Standard library
-use futures::StreamExt;
 use std::collections::BTreeMap;
 use std::fs::{OpenOptions,DirBuilder};
 use std::io::{Read, Write, Seek, SeekFrom};
@@ -7,13 +6,12 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 use std::panic;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use std::sync::atomic::AtomicBool;
 
 //Modules
 use crate::downloader::BufWriter;
 use crate::instructions::Instruction;
-use crate::mirrors::{Mirrors, Mirror, ResolverService};
+use crate::mirrors::{Mirrors, Mirror};
 use crate::traits::{BorrowUnwrap, Error, ExpectUnwrap};
 use crate::pausable::PausableTrait;
 use crate::hashes::get_hash;
@@ -22,8 +20,7 @@ use crate::hashes::get_hash;
 use rayon::prelude::*;
 use ini::Ini;
 use log::*;
-use http_body::Body;
-use hyper::client::{Client, HttpConnector};
+use download_async::Body;
 
 pub struct Patcher {
   pub logs: String,
@@ -813,45 +810,24 @@ impl Downloader {
     let mirror = self.mirrors.get_mirror();
     let ip = mirror.ip.clone();
 
-    // Create a client
-    let resolver_service = ResolverService::new(ip);
-    let mut http_connector : HttpConnector<ResolverService> = HttpConnector::new_with_resolver(resolver_service);
-    http_connector.enforce_http(false);
-    let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unexpected("").into();
-    let https_connector : hyper_tls::HttpsConnector<HttpConnector<ResolverService>> = (http_connector, tls).into();
-    let client = Client::builder().build::<_, hyper::Body>(https_connector);
-
     // Create the URL
     let mut url = format!("{}", mirror.address.to_owned());
     url.truncate(url.rfind('/').unexpected(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);
     let url = format!("{}{}", url, relative_path);
     trace!("{}", &url);
-    let url = url.parse::<hyper::Uri>().unexpected("");
+    let url = url.parse::<download_async::http::Uri>().unexpected("");
+    
     // Set up the request
-    let mut req = hyper::Request::builder();
+    let mut req = download_async::http::Request::builder();
     req = req.uri(url).header("User-Agent", "sonny-launcher/1.0");
-    let req = req.body(hyper::Body::empty()).unexpected("");
+    let req = req.body(Body::empty()).unexpected("");
+
     // Send the request
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unexpected("");
-    let _guard = rt.enter();
-    let result = rt.spawn(async move {
-      let res = client.request(req).await?;
-      // Was the request succesfull?
-      let status = res.status();
-      if status == 200 || status == 206 {
-        // The request is succesfull, iterate over the chunks and write them to the writer.
-        let mut body = res.into_body();
-        while !body.is_end_stream() {
-          let chunk = tokio::time::timeout(Duration::from_secs(10), body.next()).await.unexpected("Timed out").unexpected("Error while unwrapping chunk, corrupted data?")?;
-          writer.write_all(&chunk).unexpected("Writer encountered an error");
-        }
-        Ok(writer.flush()?)
-      } else {
-        error!("Unexpected response: found status code {}!", status);
-        Err(format!("Unexpected response: found status code {}!", status).into())
-      }
-    });
-    rt.block_on(result).unexpected("")
+    let mut progress : Option<&mut crate::progress::Progress> = None;
+    let result = download_async::download(req, &mut writer, false, &mut progress, Some(ip));
+    rt.block_on(result)?;
+    Ok(())
   }
 
   /// 
@@ -876,51 +852,28 @@ pub async fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mi
   });
   writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).unexpected("");
 
-  let url = download_url.parse::<hyper::Uri>().unexpected("");
+  let url = download_url.parse::<download_async::http::Uri>().unexpected("");
   let trunc_size = download_entry.file_size as u64;
 
-  let mut req = hyper::Request::builder();
+  let mut req = download_async::http::Request::builder();
   req = req.uri(url).header("User-Agent", "sonny-launcher/1.0");
   if resume_part != 0 {
     req = req.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
   };
-  let req = req.body(hyper::Body::empty()).unexpected("");
+  let req = req.body(download_async::Body::empty()).unexpected("");
   let ip = mirror.ip.clone();
 
-  let tls : tokio_tls::TlsConnector = native_tls::TlsConnector::new().unexpected("").into();
-  let resolver_service = ResolverService::new(ip);
-  let mut http_connector : HttpConnector<ResolverService> = HttpConnector::new_with_resolver(resolver_service);
-  http_connector.enforce_http(false);
-  let https_connector : hyper_tls::HttpsConnector<HttpConnector<ResolverService>> = (http_connector, tls).into();
-  let client = Client::builder().build::<_, hyper::Body>(https_connector);
+  let mut progress = crate::progress::Progress::new(unlocked_state);
 
-  let res = client.request(req).await?;
-  let status = res.status();
-  let mut abort_in_error = status != 200 && status != 206;
+  let result = download_async::download(req, &mut writer, false, &mut Some(&mut progress), Some(ip)).await;
 
-  let mut body = res.into_body();
-  while !body.is_end_stream() && !abort_in_error {
-    let chunk = match tokio::time::timeout(Duration::from_secs(10), body.next()).await {
-      Ok(Some(Ok(result))) => result,
-      _ => {
-        abort_in_error = true;
-        hyper::body::Bytes::new()
-      }
-    };
-    writer.write_all(&chunk).map_err(|e| panic!("Writer encountered an error: {}", e)).unexpected("");
-    let mut state = unlocked_state.lock().unexpected("");
-    state.download_size.0 += chunk.len() as u64;
-    drop(state);
-  }
-  writer.flush()?;
-  if !abort_in_error {
+  if result.is_ok() {
     let f = writer.into_inner()?;
     f.sync_all()?;
     f.set_len(trunc_size)?;
     Ok(())
   } else {
-    error!("Unexpected response: found status code {}!", status);
-    Err(format!("Unexpected response: found status code {}!", status).into())
+    Err(format!("Unexpected response: found status code!").into())
   }
 }
 

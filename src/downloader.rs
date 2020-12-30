@@ -1,23 +1,22 @@
 use std::io::prelude::*; 
 use std::io::{self, SeekFrom};
 use std::time::Duration;
-use crate::traits::{Error, ExpectUnwrap};
-use crate::futures::StreamExt;
+use crate::traits::Error;
 
 /// A Response to a submitted `Request`.
 pub struct Response {
-    parts: http::response::Parts,
+    parts: download_async::http::response::Parts,
     body: Vec<u8>,
 }
 impl Response {
-  pub fn new(parts: http::response::Parts, body: Vec<u8>) -> Self {
+  pub fn new(parts: download_async::http::response::Parts, body: Vec<u8>) -> Self {
     Self {
       parts,
       body
     }
   }
 
-  pub fn headers(&self) -> &http::HeaderMap {
+  pub fn headers(&self) -> &download_async::http::HeaderMap {
     &self.parts.headers
   }
 
@@ -34,27 +33,18 @@ impl AsRef<[u8]> for Response {
 }
 
  pub async fn download_file(url: String, timeout: Duration) -> Result<Response, Error> {
-    let url : hyper::Uri = url.parse::<hyper::Uri>()?;
+    let url : download_async::http::Uri = url.parse::<download_async::http::Uri>()?;
 
-    let req = hyper::Request::builder();
+    let req = download_async::http::Request::builder();
     let req = req.uri(url.clone()).header("host", url.host().unwrap()).header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")));
-    let req = req.body(hyper::Body::empty())?;
+    let req = req.body(download_async::Body::empty())?;
 
-    let https = hyper_tls::HttpsConnector::new();
-    let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+    let mut buffer = vec![];
+    let mut progress : Option<&mut crate::progress::Progress> = None;
 
-    let response = async move {
-        let response = client.request(req).await?;
-
-        let mut parts = response.into_parts();
-        let mut body = vec![];
-        while let Some(option) = parts.1.next().await {
-            body.append(&mut option.unexpected("downloader.rs: Unwrap on option failed.").to_vec());
-        }
-        Ok::<_, crate::traits::Error>((parts.0, body))
-    };
+    let response = download_async::download(req, &mut buffer, false, &mut progress, None);
     let result = tokio::time::timeout(timeout, response).await??;
-    Ok(Response::new(result.0, result.1))
+    Ok(Response::new(result, buffer))
 }
 
 pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64)> {

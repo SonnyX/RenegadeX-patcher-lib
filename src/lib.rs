@@ -4,19 +4,17 @@ extern crate sha2;
 extern crate ini;
 extern crate hex;
 extern crate num_cpus;
-extern crate hyper;
 extern crate futures;
 extern crate tokio;
 extern crate url;
-extern crate http;
-extern crate tower;
 extern crate runas;
 extern crate log;
+extern crate download_async;
+extern crate async_trait;
 
 //Modules
 mod apply;
 mod directory;
-mod download;
 mod downloader;
 mod error;
 mod instructions;
@@ -28,3 +26,4 @@ mod pausable;
 mod instruction_group;
 mod hashes;
 mod filesystem;
+mod progress;

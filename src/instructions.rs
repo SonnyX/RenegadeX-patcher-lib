@@ -56,7 +56,7 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut 
       let bytes = text.as_ref();
       // check instructions hash
       let mut sha256 = Sha256::new();
-      sha256.write(&bytes);
+      sha256.write(&bytes)?;
       let hash = hex::encode_upper(sha256.finalize());
       if &hash != mirrors.instructions_hash.borrow() {
         Err(format!("Hash of instructions.json ({}) did not match the one specified in release.json ({})!", &hash, mirrors.instructions_hash.borrow()).into())
