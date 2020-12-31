@@ -13,7 +13,6 @@ extern crate download_async;
 extern crate async_trait;
 
 //Modules
-mod apply;
 mod directory;
 mod downloader;
 mod error;
@@ -21,9 +20,9 @@ mod instructions;
 mod mirrors;
 pub mod patcher;
 pub mod traits;
-mod verify;
 mod pausable;
 mod instruction_group;
 mod hashes;
 mod filesystem;
 mod progress;
+mod tests;
