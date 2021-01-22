@@ -19,7 +19,7 @@ futures = "0.3"
 tokio-tls = "0.3"
 runas = { git = "https://github.com/SonnyX/rust-runas.git" }
 log = "0.4"
-download-async = "0.1"
+download-async = "0.9"
 async-trait = "0.1"
 
 [profile.test]
