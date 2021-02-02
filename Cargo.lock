@@ -1398,7 +1398,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 [[package]]
 name = "xdelta"
 version = "0.1.1"
-source = "git+https://github.com/SonnyX/xdelta-decoder-rust.git#72ab9a9b3b4c80743c27e300e6232b89aa285452"
+source = "git+https://github.com/SonnyX/xdelta-decoder-rust.git#4ee8d64a77659267d3e39cd05f61a6ee369492fc"
 dependencies = [
  "lzma-sys",
 ]
