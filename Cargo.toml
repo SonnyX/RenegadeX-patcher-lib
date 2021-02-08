@@ -13,7 +13,12 @@ rayon = "1.5"
 rand = "0.8"
 xdelta = { git = "https://github.com/SonnyX/xdelta-decoder-rust.git" }
 num_cpus = "1.13"
+<<<<<<< HEAD
 tokio = { version = "1.1", features = ["full"] }
+=======
+tokio = { version = "1.0", features = ["full"] }
+crossbeam-queue = "0.3"
+>>>>>>> 39f0eba (Modify FileSystem)
 url = "2.2"
 futures = "0.3"
 tokio-tls = "0.3"
