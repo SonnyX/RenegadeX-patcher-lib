@@ -1,5 +1,18 @@
 use log::*;
 
+/*
+pub trait FileSystem {
+  fn get_file_info(&self, file: OsString) -> File;
+  fn write_chunk(&self, chunk: Chunk);
+  
+}
+ */
+
+
+
+
+
+
 pub trait AsString {
   fn as_string(&self) -> String;
   fn as_string_option(&self) -> Option<String>;
