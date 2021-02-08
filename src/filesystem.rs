@@ -3,7 +3,13 @@ use std::collections::BTreeMap;
 use tokio::sync::mpsc::Receiver;
 use std::collections::btree_map::Entry;
 use crossbeam_queue::SegQueue;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::futures::Stream;
+
+struct ChunkHeader {
+  file: OsString,
+  size: usize,
+}
 
 struct Chunk {
   /// The file the chunk belongs to
@@ -34,10 +40,13 @@ impl File {
 }
 
 // Set up a singular task which takes care of writing data to disk
+#[derive(Clone)]
 struct FileSystem {
   parts: BTreeMap<OsString, File>,
   use_memory_only: bool,
   receiver: Receiver<Chunk>,
+  file_initializer: Receiver<ChunkHeader>,
+  keep_going: AtomicBool,
 }
 
 
@@ -66,10 +75,11 @@ impl FileSystem {
   }
 
   pub async fn write_parts_to_disk(&self) {
-    // self.receiver.
-    // while let Some(most_backed_up) = self.get_most_backed_up().await {
-    //   let receiver = self.receivers.get(most_backed_up);
+    while self.keep_going.load(Ordering::Relaxed) {
+      while let Some(most_backed_up) = self.get_most_backed_up().await {
+        let receiver = self.receivers.get(most_backed_up);
 
-    // }
+      }
+    }
   }
 }
