@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
 
-pub struct Progress {
-    global_progress: Option<Arc<Mutex<crate::patcher::Progress>>>
+pub struct DownloadProgress {
+    global_progress: Option<Arc<Mutex<Progress>>>
 }
 
-impl Progress {
-    pub fn new(global_progress: Arc<Mutex<crate::patcher::Progress>>) -> Self {
+impl DownloadProgress {
+    pub fn new(global_progress: Arc<Mutex<Progress>>) -> Self {
         Self {
             global_progress: Some(global_progress)
         }
@@ -15,7 +15,7 @@ impl Progress {
 }
 
 #[async_trait]
-impl download_async::Progress for Progress {
+impl download_async::Progress for DownloadProgress {
     async fn get_file_size(&self) -> usize {
         64
     }
@@ -40,3 +40,26 @@ impl download_async::Progress for Progress {
         
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct Progress {
+  pub update: Update,
+  pub hashes_checked: (u64, u64),
+  pub download_size: (u64,u64), //Downloaded .. out of .. bytes
+  pub patch_files: (u64, u64), //Patched .. out of .. files
+  pub finished_hash: bool,
+  pub finished_patching: bool,
+}
+
+impl Progress {
+    fn new() -> Progress {
+      Progress {
+        update: Update::Unknown,
+        hashes_checked: (0,0),
+        download_size: (0,0),
+        patch_files: (0,0),
+        finished_hash: false,
+        finished_patching: false,
+      }
+    }
+  }

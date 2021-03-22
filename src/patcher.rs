@@ -15,12 +15,18 @@ use crate::mirrors::{Mirrors, Mirror};
 use crate::traits::{BorrowUnwrap, Error, ExpectUnwrap};
 use crate::pausable::PausableTrait;
 use crate::hashes::get_hash;
+use crate::pausable::BackgroundService;
 
 //External crates
 use rayon::prelude::*;
 use ini::Ini;
 use log::*;
 use download_async::Body;
+use futures::task::AtomicWaker;
+use futures::future::join_all;
+
+pub static LOL: Patcher = Patcher::new();
+
 
 pub struct Patcher {
   pub logs: String,
@@ -127,59 +133,6 @@ pub async fn start() {
 }
 */
 
-
-
-
-
-
-
-#[derive(Debug, Clone)]
-pub struct Progress {
-  pub update: Update,
-  pub hashes_checked: (u64, u64),
-  pub download_size: (u64,u64), //Downloaded .. out of .. bytes
-  pub patch_files: (u64, u64), //Patched .. out of .. files
-  pub finished_hash: bool,
-  pub finished_patching: bool,
-}
-
-#[derive(Debug, Clone)]
-pub enum Update {
-  Unknown,
-  UpToDate,
-  Resume,
-  Full,
-  Delta,
-}
-
-impl Progress {
-  fn new() -> Progress {
-    Progress {
-      update: Update::Unknown,
-      hashes_checked: (0,0),
-      download_size: (0,0),
-      patch_files: (0,0),
-      finished_hash: false,
-      finished_patching: false,
-    }
-  }
-}
-
-#[derive(Debug,Clone)]
-pub struct PatchEntry {
-  target_path: String,
-  delta_path: String,
-  has_source: bool,
-  target_hash: String,
-}
-
-#[derive(Debug)]
-pub struct DownloadEntry {
-  file_path: String,
-  file_size: usize,
-  file_hash: String,
-  patch_entries: Vec<PatchEntry>,
-}
 
 #[derive(Debug)]
 pub struct Downloader {
@@ -359,7 +312,7 @@ impl Downloader {
    * -------------------------      ------------
   */
   async fn retrieve_instructions(&mut self) -> Result<(), Error> {
-    crate::instructions::retrieve_instructions(&self.mirrors, &mut self.instructions, &self.renegadex_location.clone().unexpected("No RenegadeX Location found")).await
+    self.instructions = crate::instructions::retrieve_instructions(&self.mirrors).await
   }
 
   /*
@@ -875,53 +828,4 @@ pub async fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mi
   } else {
     Err(format!("Unexpected response: found status code!").into())
   }
-}
-
-/// Convert a raw bytesize into a network speed
-pub fn convert(num: f64) -> String {
-  let negative = if num.is_sign_positive() { "" } else { "-" };
-  let num = num.abs();
-  let units = ["B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-  if num < 1_f64 {
-    return format!("{}{} {}", negative, num, "B");
-  }
-  let delimiter = 1000_f64;
-  let exponent = std::cmp::min((num.ln() / delimiter.ln()).floor() as i32, (units.len() - 1) as i32);
-  let pretty_bytes = format!("{:.2}", num / delimiter.powi(exponent)).parse::<f64>().unexpected("") * 1_f64;
-  let unit = units[exponent as usize];
-  format!("{}{} {}", negative, pretty_bytes, unit)
-}
-
-///
-/// Applies the vcdiff patch file to the target file.
-/// ```
-/// -------------- par --------------------------------------------------
-/// | DeltaQueue | --> | apply patch to all files that match this Delta |
-/// --------------     --------------------------------------------------
-///```
-fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<(), Error> {
-  let mut dir_path = patch_entry.target_path.clone();
-  dir_path.truncate(patch_entry.target_path.rfind('/').unexpected(""));
-  DirBuilder::new().recursive(true).create(dir_path).unexpected("");
-  if patch_entry.has_source {
-    let source_path = format!("{}.vcdiff_src", &patch_entry.target_path);
-    std::fs::rename(&patch_entry.target_path, &source_path).unexpected("");
-    xdelta::decode_file(Some(&source_path), &patch_entry.delta_path, &patch_entry.target_path);
-    std::fs::remove_file(&source_path).unexpected("");
-  } else {
-    //there is supposed to be no source file, so make sure it doesn't exist either!
-    match std::fs::remove_file(&patch_entry.target_path) {
-      Ok(()) => (),
-      Err(_e) => ()
-    };
-    xdelta::decode_file(None, &patch_entry.delta_path, &patch_entry.target_path);
-  }
-  let hash = get_hash(&patch_entry.target_path)?;
-  if hash != patch_entry.target_hash {
-    return Err(format!("Hash for file {} is incorrect!\nGot hash: {}\nExpected hash: {}", &patch_entry.target_path, &hash, &patch_entry.target_hash).into());
-  }
-  let mut state = state.lock().unexpected("");
-  state.patch_files.0 += 1;
-  drop(state);
-  Ok(())
 }

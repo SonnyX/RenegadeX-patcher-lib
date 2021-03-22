@@ -16,13 +16,35 @@ extern crate async_trait;
 mod directory;
 mod downloader;
 mod error;
+mod filesystem;
+mod hashes;
+mod instruction_group;
 mod instructions;
 mod mirrors;
 pub mod patcher;
-pub mod traits;
 mod pausable;
-mod instruction_group;
-mod hashes;
-mod filesystem;
+mod patch_entry;
 mod progress;
 mod tests;
+pub mod traits;
+mod update;
+mod utilities;
+
+pub use crate::patcher::Patcher;
+
+
+
+/*
+
+Copying of files comes first?
+Think of renames, we should process these before downloading!
+target_hash goes to null
+
+after sorting the files into groups
+
+download_patch_file() -> patch_file_location
+let patch_entry = PatchEntry::new();
+let patched_file = patch_file(patch_entry)
+for remaining files: copy_file(patched_file, target_file);
+
+*/

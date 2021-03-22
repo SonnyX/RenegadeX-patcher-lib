@@ -7,21 +7,27 @@ use futures::task::AtomicWaker;
 
 pub static FUTURE_CONTEXT : FutureContext = FutureContext { paused: AtomicBool::new(false), waker: AtomicWaker::new(), cancelled: AtomicBool::new(false) };
 
+pub trait BackgroundService {
+  fn pause(&self) -> Result<(), ()>;
+  fn resume(&self) -> Result<(), ()>;
+  fn stop(&self) -> Result<(), ()>;
+}
+
 pub struct FutureContext {
   pub paused: AtomicBool,
   pub waker: AtomicWaker,
   pub cancelled: AtomicBool,
 }
 
-impl FutureContext {
-  pub fn pause(&self) -> Result<(), ()> {
+impl BackgroundService for FutureContext {
+  fn pause(&self) -> Result<(), ()> {
     if self.paused.load(Ordering::Relaxed) {
       return Err(());
     }
     self.paused.swap(true, Ordering::Relaxed);
     Ok(())
   }
-  pub fn resume(&self) -> Result<(), ()> {
+  fn resume(&self) -> Result<(), ()> {
     if !self.paused.load(Ordering::Relaxed) {
       return Err(());
     }
@@ -29,7 +35,7 @@ impl FutureContext {
     self.waker.wake();
     Ok(())
   }
-  pub fn cancel(&self) -> Result<(), ()> {
+  fn stop(&self) -> Result<(), ()> {
     if self.cancelled.load(Ordering::Relaxed) {
       return Err(());
     }
