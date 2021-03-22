@@ -1,4 +1,4 @@
-use crate::traits::Error;
+use crate::error::Error;
 use crate::mirrors::Mirrors;
 use std::sync::Mutex;
 use log::*;
@@ -22,7 +22,7 @@ pub(crate) struct Instruction {
   pub path: String,
   /// SHA256 hash of this file during the previous patch, None if this is a new file
   pub previous_hash: Option<String>,
-  /// SHA256 hash of this file during current patch, None if the file is to be deleted
+  /// SHA256 hash of this file during current patch, None if the file is to be deleted/moved
   pub newest_hash: Option<String>,
   /// SHA256 hash of Full vcdiff patch file
   pub full_vcdiff_hash: Option<String>,
@@ -37,14 +37,24 @@ pub(crate) struct Instruction {
 }
 
 
+#[derive(Debug,Clone)]
+pub struct PatchEntry {
+  /// Path to the target
+  target_path: String,
+  /// Path to the vcdiff file
+  delta_path: String,
+  /// If the target_path needs to apply on something? idk
+  has_source: bool,
+  target_hash: String,
+}
 
-pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut Vec<Instruction>, renegadex_location: &str) -> Result<(), Error> {
+
+
+pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instruction>, Error> {
   if mirrors.is_empty() {
     return Err("No mirrors found! Did you retrieve mirrors?".to_string().into());
   }
-  if !instructions.is_empty() {
-    return Ok(());
-  }
+
   let instructions_mutex : Mutex<String> = Mutex::new("".to_string());
   for retry in 0_usize..3_usize {
     let mirror = mirrors.get_mirror();
@@ -74,15 +84,15 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut 
       mirrors.remove(mirror);
     }
   }
-  let instructions_text : String = instructions_mutex.into_inner().unexpected(concat!(module_path!(),":",file!(),":",line!()));
+  let instructions_text : String = instructions_mutex.into_inner().map_err(error_message || { error_message.message = format!("", error_message) })?;
   let instructions_data = match json::parse(&instructions_text) {
     Ok(result) => result,
     Err(e) => return Err(format!("Invalid JSON: {}", e).into())
   };
+  let instructions = Vec::with_capacity(instructions_data.len());
   instructions_data.into_inner().iter().for_each(|instruction| {
-    let file_path = format!("{}{}", renegadex_location, instruction["Path"].as_string().replace("\\", "/"));
     instructions.push(Instruction {
-      path:                 file_path,
+      path:                 instruction["Path"].as_string().replace("\\", "/"),
       previous_hash:        instruction["OldHash"].as_string_option(),
       newest_hash:          instruction["NewHash"].as_string_option(),
       full_vcdiff_hash:     instruction["CompressedHash"].as_string_option(),
@@ -92,5 +102,5 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors, instructions: &mut 
       has_delta:            instruction["HasDelta"].as_bool().unexpected(concat!(module_path!(),":",file!(),":",line!()))
     });
   });
-  Ok(())
+  Ok(instructions)
 }

@@ -4,4 +4,6 @@ pub enum Error {
 	FutureWasPaused(),
 	FutureCancelled(),
 	HashMismatch(),
+	MutexPoisoned(),
 }
+
