@@ -6,6 +6,7 @@ use crate::instructions::Instruction;
 use log::*;
 use crate::traits::Error;
 
+
 #[derive(Debug)]
 pub(crate) struct Directory {
   pub name: OsString,
@@ -14,14 +15,14 @@ pub(crate) struct Directory {
 }
 
 pub(crate) struct File {
-  name: OsString,
-  last_modified: String,
+  pub name: OsString,
+  pub last_modified: String,
 }
 
 impl Directory {
   pub fn new() -> Self {
     Self {
-      name: "",
+      name: "".into(),
       subdirectories: Vec::new(),
       files: Vec::new(),
     }

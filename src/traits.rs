@@ -9,10 +9,6 @@ pub trait FileSystem {
  */
 
 
-
-
-
-
 pub trait AsString {
   fn as_string(&self) -> String;
   fn as_string_option(&self) -> Option<String>;
@@ -107,6 +103,17 @@ impl std::fmt::Display for Error {
 
 
 impl std::error::Error for Error {}
+/*
+impl<T: std::error::Error + Send + Sync> From<T> for Error {
+  #[inline(always)]
+  fn from(error: T) -> Self {
+    Self {
+      inner: error,
+      remove_mirror: false
+    }
+  }
+}
+*/
 
 impl From<Box<dyn std::error::Error + Send + Sync>> for Error {
   #[inline(always)]
@@ -144,6 +151,16 @@ impl From<std::string::FromUtf8Error> for Error {
     Self {
       inner: Box::new(error),
       remove_mirror: false
+    }
+  }
+}
+
+impl<T: 'static + Send + Sync> From<std::sync::PoisonError<T>> for Error {
+  #[inline(always)]
+  fn from(error: std::sync::PoisonError<T>) -> Self {
+    Error {
+      inner: Box::new(error),
+      remove_mirror: true
     }
   }
 }

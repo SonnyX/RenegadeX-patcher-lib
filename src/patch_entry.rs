@@ -1,11 +1,11 @@
 #[derive(Debug,Clone)]
 pub struct PatchEntry {
   /// Path to target file
-  target_path: String,
+  pub target_path: String,
   /// path to patch file
-  delta_path: String,
+  pub delta_path: String,
   /// If the patch file requires a target file
-  has_source: bool,
+  pub has_source: bool,
   /// The expected target hash after patching
-  target_hash: String,
+  pub target_hash: String,
 }

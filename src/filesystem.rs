@@ -7,26 +7,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::futures::Stream;
 
 struct ChunkHeader {
-  file: OsString,
-  size: usize,
+  pub file: OsString,
+  pub size: usize,
 }
 
 struct Chunk {
   /// The file the chunk belongs to
-  file: OsString,
+  pub file: OsString,
   /// The part containing the data and the starting position of this data.
-  part: Part,
+  pub part: Part,
 }
 
 struct Part {
-  start_location: usize,
-  data: Vec<u8>,
+  pub start_location: usize,
+  pub data: Vec<u8>,
 }
 
 struct File {
-  size: usize,
-  done: bool,
-  queue: SegQueue<Part>,
+  pub size: usize,
+  pub done: bool,
+  pub queue: SegQueue<Part>,
 }
 
 impl File {
@@ -42,11 +42,11 @@ impl File {
 // Set up a singular task which takes care of writing data to disk
 #[derive(Clone)]
 struct FileSystem {
-  parts: BTreeMap<OsString, File>,
-  use_memory_only: bool,
-  receiver: Receiver<Chunk>,
-  file_initializer: Receiver<ChunkHeader>,
-  keep_going: AtomicBool,
+  pub parts: BTreeMap<OsString, File>,
+  pub use_memory_only: bool,
+  pub receiver: Receiver<Chunk>,
+  pub file_initializer: Receiver<ChunkHeader>,
+  pub keep_going: AtomicBool,
 }
 
 
@@ -77,7 +77,7 @@ impl FileSystem {
   pub async fn write_parts_to_disk(&self) {
     while self.keep_going.load(Ordering::Relaxed) {
       while let Some(most_backed_up) = self.get_most_backed_up().await {
-        let receiver = self.receivers.get(most_backed_up);
+        let receiver = self.receiver.get(most_backed_up);
 
       }
     }

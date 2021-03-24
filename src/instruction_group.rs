@@ -3,11 +3,11 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use crate::instructions::Instruction;
 
-pub struct InstructionGroup {
-	future: Pin<Box<dyn Future<Output = ()>>>,
+pub(crate) struct InstructionGroup {
+	pub future: Pin<Box<dyn Future<Output = ()>>>,
 	/// SHA256 hash of this file during current patch, None if the file is to be deleted
-	hash: Option<String>,
-	instructions: Vec<Instruction>,
+	pub hash: Option<String>,
+	pub instructions: Vec<Instruction>,
 }
 
 impl Future for InstructionGroup {

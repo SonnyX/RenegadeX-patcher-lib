@@ -1,5 +1,10 @@
 use crate::patch_entry::PatchEntry;
 use crate::progress::Progress;
+use std::sync::{Arc, Mutex};
+use crate::traits::ExpectUnwrap;
+use crate::traits::Error;
+use std::fs::DirBuilder;
+use crate::hashes::get_hash;
 
 ///
 /// Applies the vcdiff patch file to the target file.
@@ -8,7 +13,7 @@ use crate::progress::Progress;
 /// | DeltaQueue | --> | apply patch to all files that match this Delta |
 /// --------------     --------------------------------------------------
 ///```
-fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<(), Error> {
+pub(crate) fn apply_patch(patch_entry: &PatchEntry, state: Arc<Mutex<Progress>>) -> Result<(), Error> {
     let mut dir_path = patch_entry.target_path.clone();
     dir_path.truncate(patch_entry.target_path.rfind('/').unexpected(""));
     // Create directory incase it does not exist

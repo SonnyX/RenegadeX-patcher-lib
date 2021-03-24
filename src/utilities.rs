@@ -1,3 +1,6 @@
+use crate::traits::ExpectUnwrap;
+
+
 /// Convert a raw bytesize into a network speed
 pub fn convert(num: f64) -> String {
   let negative = if num.is_sign_positive() { "" } else { "-" };

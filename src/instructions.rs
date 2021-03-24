@@ -1,12 +1,13 @@
-use crate::error::Error;
 use crate::mirrors::Mirrors;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use log::*;
 use std::time::Duration;
 use sha2::{Sha256, Digest};
 use crate::downloader::download_file;
-use crate::traits::*;
+use crate::traits::{ExpectUnwrap,Error,BorrowUnwrap};
 use std::io::Write;
+use crate::traits::AsString;
+
 
 pub struct HashMember {
   pub path: String,
@@ -85,12 +86,12 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
       mirrors.remove(mirror);
     }
   }
-  let instructions_text : String = instructions_mutex.into_inner().map_err(error_message || { error_message.message = format!("", error_message) })?;
+  let instructions_text : String = instructions_mutex.into_inner().map_err( | error_message | { Error::from(error_message) })?;
   let instructions_data = match json::parse(&instructions_text) {
     Ok(result) => result,
     Err(e) => return Err(format!("Invalid JSON: {}", e).into())
   };
-  let instructions = Vec::with_capacity(instructions_data.len());
+  let mut instructions = Vec::with_capacity(instructions_data.len());
   instructions_data.into_inner().iter().for_each(|instruction| {
     instructions.push(Instruction {
       path:                 instruction["Path"].as_string().replace("\\", "/"),

@@ -1,8 +1,9 @@
+use crate::patch_entry::PatchEntry;
 
 #[derive(Debug)]
 pub struct DownloadEntry {
-  file_path: String,
-  file_size: usize,
-  file_hash: String,
-  patch_entries: Vec<PatchEntry>,
+  pub file_path: String,
+  pub file_size: usize,
+  pub file_hash: String,
+  pub patch_entries: Vec<PatchEntry>,
 }

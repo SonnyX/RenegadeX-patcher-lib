@@ -13,10 +13,12 @@ extern crate download_async;
 extern crate async_trait;
 
 //Modules
+mod apply;
 mod directory;
 mod downloader;
+mod download_entry;
 mod error;
-mod filesystem;
+//mod filesystem;
 mod hashes;
 mod instruction_group;
 mod instructions;

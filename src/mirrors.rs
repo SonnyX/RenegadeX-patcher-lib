@@ -7,7 +7,6 @@ use crate::traits::{AsString,Error,ExpectUnwrap};
 use futures::future::join_all;
 use log::{error,trace};
 
-
 #[derive(Debug, Clone)]
 pub struct Mirror {
   pub address: Arc<String>,

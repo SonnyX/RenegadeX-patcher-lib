@@ -16,6 +16,13 @@ use crate::traits::{BorrowUnwrap, Error, ExpectUnwrap};
 use crate::pausable::PausableTrait;
 use crate::hashes::get_hash;
 use crate::pausable::BackgroundService;
+use crate::update::Update;
+use crate::apply::apply_patch;
+use crate::progress::Progress;
+use crate::download_entry::DownloadEntry;
+use crate::patch_entry::PatchEntry;
+use crate::utilities::convert;
+
 
 //External crates
 use rayon::prelude::*;
@@ -25,7 +32,7 @@ use download_async::Body;
 use futures::task::AtomicWaker;
 use futures::future::join_all;
 
-pub static LOL: Patcher = Patcher::new();
+//pub static LOL: Patcher = Patcher::new();
 
 
 pub struct Patcher {
@@ -83,7 +90,7 @@ impl Patcher {
   }
 
   pub async fn cancel(self) -> Result<(), ()> {
-    crate::pausable::FUTURE_CONTEXT.cancel()?;
+    crate::pausable::FUTURE_CONTEXT.stop()?;
     let _ = self.join_handle.await;
     Ok(())
   }
@@ -312,7 +319,8 @@ impl Downloader {
    * -------------------------      ------------
   */
   async fn retrieve_instructions(&mut self) -> Result<(), Error> {
-    self.instructions = crate::instructions::retrieve_instructions(&self.mirrors).await
+    self.instructions = crate::instructions::retrieve_instructions(&self.mirrors).await?;
+    Ok(())
   }
 
   /*
@@ -777,7 +785,7 @@ impl Downloader {
 
     // Send the request
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unexpected("");
-    let mut progress : Option<&mut crate::progress::Progress> = None;
+    let mut progress : Option<&mut crate::progress::DownloadProgress> = None;
     let result = download_async::download(req, &mut writer, false, &mut progress, Some(ip));
     rt.block_on(result)?;
     Ok(())
@@ -816,7 +824,7 @@ pub async fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mi
   let req = req.body(download_async::Body::empty()).unexpected("");
   let ip = mirror.ip.clone();
 
-  let mut progress = crate::progress::Progress::new(unlocked_state);
+  let mut progress = crate::progress::DownloadProgress::new(unlocked_state);
 
   let result = download_async::download(req, &mut writer, false, &mut Some(&mut progress), Some(ip)).await;
 

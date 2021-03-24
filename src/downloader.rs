@@ -2,6 +2,7 @@ use std::io::prelude::*;
 use std::io::{self, SeekFrom};
 use std::time::Duration;
 use crate::traits::Error;
+use crate::traits::ExpectUnwrap;
 
 /// A Response to a submitted `Request`.
 pub struct Response {
@@ -40,7 +41,7 @@ impl AsRef<[u8]> for Response {
     let req = req.body(download_async::Body::empty())?;
 
     let mut buffer = vec![];
-    let mut progress : Option<&mut crate::progress::Progress> = None;
+    let mut progress : Option<&mut crate::progress::DownloadProgress> = None;
 
     let response = download_async::download(req, &mut buffer, false, &mut progress, None);
     let result = tokio::time::timeout(timeout, response).await??;

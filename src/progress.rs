@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
+use crate::update::Update;
 
 pub struct DownloadProgress {
-    global_progress: Option<Arc<Mutex<Progress>>>
+    pub global_progress: Option<Arc<Mutex<Progress>>>
 }
 
 impl DownloadProgress {
@@ -36,8 +37,12 @@ impl download_async::Progress for DownloadProgress {
         }
     }
 
-    async fn remove_from_progress(&mut self, bytes: usize) {
-        
+    async fn remove_from_progress(&mut self, amount: usize) {
+        if let Some(global_progress) = self.global_progress.as_deref() {
+            let mut state = global_progress.lock().unwrap();
+            state.download_size.0 -= amount as u64;
+            drop(state);
+        }
     }
 }
 
@@ -52,7 +57,7 @@ pub struct Progress {
 }
 
 impl Progress {
-    fn new() -> Progress {
+    pub fn new() -> Progress {
       Progress {
         update: Update::Unknown,
         hashes_checked: (0,0),
