@@ -34,9 +34,26 @@ mod utilities;
 
 pub use crate::patcher::Patcher;
 
-
-
 /*
+public api might want to be looking as follows:
+
+patcher::PatcherBuilder::new()
+PatcherBuilder::set_mirrors_url();
+PatcherBuilder::initialize_patcher();
+
+patcher::start_retrieve_mirrors();
+
+
+patcher::start()
+patcher::stop()
+patcher::resume()
+
+patcher::get_progress();
+patcher::
+patcher::remove_unversioned()
+
+
+
 
 Copying of files comes first?
 Think of renames, we should process these before downloading!

@@ -8,19 +8,19 @@ use crate::traits::Error;
 
 
 #[derive(Debug)]
-pub(crate) struct Directory {
-  pub name: OsString,
-  pub subdirectories: Vec<Directory>,
-  pub files: Vec<PathBuf>,
+struct Directory {
+  name: OsString,
+  subdirectories: Vec<Directory>,
+  files: Vec<PathBuf>,
 }
 
-pub(crate) struct File {
-  pub name: OsString,
-  pub last_modified: String,
+struct File {
+  name: OsString,
+  last_modified: String,
 }
 
 impl Directory {
-  pub fn new() -> Self {
+  fn new() -> Self {
     Self {
       name: "".into(),
       subdirectories: Vec::new(),
@@ -28,7 +28,7 @@ impl Directory {
     }
   }
 
-  pub fn with_name(name: OsString) -> Self {
+  fn with_name(name: OsString) -> Self {
     Self {
       name,
       subdirectories: Vec::new(),
@@ -37,7 +37,7 @@ impl Directory {
   }
 
   /// Get or Create a subdirectory
-  pub fn get_or_create_subdirectory(&mut self, name: OsString) -> &mut Directory {
+  fn get_or_create_subdirectory(&mut self, name: OsString) -> &mut Directory {
     for index in 0..self.subdirectories.len() {
       if self.subdirectories[index].name == name {
         return &mut self.subdirectories[index];
@@ -48,7 +48,7 @@ impl Directory {
   }
 
   /// 
-  pub fn get_subdirectory(&self, name: OsString) -> Option<&Directory> {
+  fn get_subdirectory(&self, name: OsString) -> Option<&Directory> {
     for index in 0..self.subdirectories.len() {
       if self.subdirectories[index].name == name {
         return Some(&self.subdirectories[index]);
@@ -57,7 +57,7 @@ impl Directory {
     return None;
   }
 
-  pub fn directory_exists(&self, path: PathBuf) -> bool {
+  fn directory_exists(&self, path: PathBuf) -> bool {
     //split up path into an iter and push it to temporary path's, if it's all done then we're good
     let mut temp = self;
     for directory in path.iter() {
@@ -71,7 +71,7 @@ impl Directory {
     return true;
   }
 
-  pub fn file_exists(&self, file: PathBuf) -> bool {
+  fn file_exists(&self, file: PathBuf) -> bool {
     //split up path into an iter and push it to temporary path's, if it's all done then we're good
 
     // I'm actually confused, why do we return if the file is InstallInfo.xml? the idea is that we shouldn't delete this file, but why here
@@ -93,6 +93,8 @@ impl Directory {
   }
 }
 
+
+/// Only public API of directory.rs
 pub(crate) fn remove_unversioned(instructions: &Vec<Instruction>, renegadex_location: &String) -> Result<(), Error> {
   let mut versioned_files = Directory::new();
   let renegadex_path = std::path::PathBuf::from(renegadex_location);
@@ -124,17 +126,10 @@ pub(crate) fn remove_unversioned(instructions: &Vec<Instruction>, renegadex_loca
   let files = std::fs::read_dir(renegadex_location).unexpected("");
   for file in files {
     let file = file.unexpected("Unexpected error occurred");
-    if file
-      .file_type()
-      .unexpected("Unexpected error occurred")
-      .is_dir()
+    if file.file_type().unexpected("Unexpected error occurred").is_dir()
     {
       if versioned_files.directory_exists(
-        file
-          .path()
-          .strip_prefix(&renegadex_path)
-          .unexpected("Unexpected error occurred")
-          .to_owned(),
+        file.path().strip_prefix(&renegadex_path).unexpected("Unexpected error occurred").to_owned(),
       ) {
         read_dir(&file.path(), &versioned_files, &renegadex_path)?;
       } else {
