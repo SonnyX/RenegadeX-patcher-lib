@@ -24,6 +24,7 @@ mod instruction_group;
 mod instructions;
 mod mirrors;
 pub mod patcher;
+pub mod patcher_builder;
 mod pausable;
 mod patch_entry;
 mod progress;
@@ -33,26 +34,51 @@ mod update;
 mod utilities;
 
 pub use crate::patcher::Patcher;
+pub use crate::traits::Error;
+
+static global_runtime : Option<tokio::runtime::Runtime> = None;
+static patcher : Option<Patcher> = None;
+
+/// patcher::stop()
+pub fn stop() -> Result<(), Error> {
+  Ok(())
+}
+
+/// patcher::start()
+pub fn start() -> Result<(), Error> {
+  Ok(())
+}
+/// patcher::resume()
+pub fn resume() -> Result<(), Error> {
+  Ok(())
+}
+
+/// patcher::pause()
+pub fn pause() -> Result<(), Error> {
+  Ok(())
+}
+
+
 
 /*
-public api might want to be looking as follows:
-
-patcher::PatcherBuilder::new()
-PatcherBuilder::set_mirrors_url();
-PatcherBuilder::initialize_patcher();
-
-patcher::start_retrieve_mirrors();
-
-
-patcher::start()
-patcher::stop()
-patcher::resume()
-
-patcher::get_progress();
-patcher::
-patcher::remove_unversioned()
-
-
+/// public api might want to be looking as follows:
+/// 
+/// patcher::PatcherBuilder::new()
+/// builder.set_mirrors_url();
+/// builder.initialize_patcher();
+/// 
+/// patcher::get_version_information();
+/// 
+/// patcher::start()
+/// patcher::stop()
+/// patcher::resume()
+/// patcher::pause()
+/// 
+/// patcher::get_progress();
+/// patcher::
+/// patcher::remove_unversioned()
+/// 
+/// 
 
 
 Copying of files comes first?
