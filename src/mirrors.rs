@@ -7,15 +7,7 @@ use crate::traits::{AsString,Error,ExpectUnwrap};
 use futures::future::join_all;
 use log::{error,trace};
 
-#[derive(Debug, Clone)]
-pub struct Mirror {
-  pub address: Arc<String>,
-  pub speed: f64,
-  pub ping: f64,
-  pub error_count: Arc<Mutex<u16>>,
-  pub enabled: Arc<Mutex<bool>>,
-  pub ip: SocketAddrs,
-}
+
 
 impl Mirror {
   async fn test_mirror(self) -> Mirror {
@@ -62,22 +54,8 @@ impl Mirror {
   }
 }
 
-#[derive(Debug, Clone)]
-pub struct LauncherInfo {
-  pub version_name: String,
-  pub version_number: usize,
-  pub patch_url: String,
-  pub patch_hash: String,
-  pub prompted: bool,
-}
 
-#[derive(Debug)]
-pub struct Mirrors {
-  pub mirrors: Vec<Mirror>,
-  pub instructions_hash: Option<String>,
-  pub version_number: Option<String>,
-  pub launcher_info: Option<LauncherInfo>,
-}
+
 
 impl Mirrors {
   pub fn new() -> Mirrors {
