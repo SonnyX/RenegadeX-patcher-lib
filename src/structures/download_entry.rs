@@ -1,4 +1,4 @@
-use crate::patch_entry::PatchEntry;
+use crate::structures::patch_entry::PatchEntry;
 
 #[derive(Debug)]
 pub struct DownloadEntry {
