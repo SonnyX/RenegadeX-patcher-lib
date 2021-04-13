@@ -159,14 +159,15 @@ dependencies = [
 
 [[package]]
 name = "download-async"
-version = "0.9.7"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48cb774b2c98e05b696c8db495e4d53a5e3cb804120131e83b8500310c8f088f"
+checksum = "aea93c9fb85efeff6e922b72293a641b76fbf5ee320aa3d7549d00243aa7481c"
 dependencies = [
  "async-trait",
  "http",
  "hyper",
  "hyper-tls",
+ "log",
  "native-tls",
  "tokio 1.4.0",
  "tower",
