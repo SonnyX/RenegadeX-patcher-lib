@@ -1,20 +1,26 @@
-pub mod download_entry;
-pub use download_entry::DownloadEntry;
+mod download_entry;
+pub(crate) use download_entry::DownloadEntry as DownloadEntry;
 
-pub mod patch_entry;
-pub use patch_entry::PatchEntry;
+mod patch_entry;
+pub(crate) use patch_entry::PatchEntry as PatchEntry;
 
-pub mod mirror;
-pub use mirror::Mirror;
+mod mirror;
+pub(crate) use mirror::Mirror as Mirror;
 
-pub mod mirrors;
-pub use mirrors::Mirrors;
+mod mirrors;
+pub(crate) use mirrors::Mirrors as Mirrors;
 
-pub mod launcher_info;
-pub use launcher_info::LauncherInfo;
+mod launcher_info;
+pub(crate) use launcher_info::LauncherInfo as LauncherInfo;
 
-pub mod instruction_group;
-use instruction_group::InstructionGroup;
+mod instruction_group;
+pub(crate) use instruction_group::InstructionGroup as InstructionGroup;
 
-pub mod instructions;
-pub use instructions::Instructions;
+mod instructions;
+pub(crate) use instructions::Instruction as Instruction;
+
+mod response;
+pub(crate) use response::Response as Response;
+
+mod error;
+pub use error::Error as Error;

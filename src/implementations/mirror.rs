@@ -1,5 +1,10 @@
+use std::sync::{Arc,Mutex};
+use std::time::{Duration, Instant};
+use crate::structures::Mirror;
+use crate::functions::download_file;
+
 impl Mirror {
-    async fn test_mirror(self) -> Mirror {
+    pub(crate) async fn test_mirror(self) -> Mirror {
       let start = Instant::now();
       let mut url = format!("{}", self.address.to_owned());
       url.truncate(url.rfind('/').unexpected(&format!("mirrors.rs: Couldn't find a / in {}", &url)) + 1);

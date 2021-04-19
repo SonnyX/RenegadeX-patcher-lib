@@ -15,28 +15,28 @@ extern crate async_trait;
 mod structures;
 mod functions;
 mod implementations;
+mod traits;
 
 //Modules
 
 /*
-/// public api might want to be looking as follows:
-/// 
-/// let builder = patcher::PatcherBuilder::new()
-/// builder.set_mirrors_url();
-/// let patcher = builder.build();
-/// 
-/// patcher.get_version_information();
-/// 
-/// patcher.start()
-/// patcher.stop()
-/// patcher.resume()
-/// patcher.pause()
-/// 
-/// patcher.get_progress();
-/// patcher.
-/// patcher.remove_unversioned()
-/// 
-/// 
+public api might want to be looking as follows:
+
+let builder = patcher::PatcherBuilder::new()
+builder.set_mirrors_url();
+let patcher = builder.build();
+
+patcher.get_version_information();
+
+patcher.start()
+patcher.stop()
+patcher.resume()
+patcher.pause()
+
+patcher.get_progress();
+patcher.
+patcher.remove_unversioned()
+
 
 
 Copying of files comes first?

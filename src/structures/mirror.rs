@@ -1,3 +1,6 @@
+use std::sync::{Arc, Mutex};
+use download_async::SocketAddrs;
+
 #[derive(Debug, Clone)]
 pub struct Mirror {
   pub address: Arc<String>,

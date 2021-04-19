@@ -1,21 +1,20 @@
 use std::io::Write;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::structures::mirrors::Mirrors;
-use crate::downloader::download_file;
-use crate::traits::{ExpectUnwrap,Error,BorrowUnwrap};
+use crate::structures::{Error, Mirrors, Instruction};
+use crate::functions::download_file;
+use crate::traits::{ExpectUnwrap,BorrowUnwrap};
 use crate::traits::AsString;
 
-use log::*;
+use log::warn;
 use sha2::{Sha256, Digest};
 
 pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instruction>, Error> {
     if mirrors.is_empty() {
-      return Err("No mirrors found! Did you retrieve mirrors?".to_string().into());
+      return Err(Error::NoMirrors());
     }
-  
-    let instructions_mutex : Mutex<String> = Mutex::new("".to_string());
+    // todo: rewrite to have a race to fetch instructions the fastest
+    let mut instructions : String = "".to_string();
     for retry in 0_usize..3_usize {
       let mirror = mirrors.get_mirror();
       let result : Result<(),Error> = {
@@ -28,9 +27,9 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
         sha256.write(&bytes)?;
         let hash = hex::encode_upper(sha256.finalize());
         if &hash != mirrors.instructions_hash.borrow() {
-          Err(format!("Hash of instructions.json ({}) did not match the one specified in release.json ({})!", &hash, mirrors.instructions_hash.borrow()).into())
+          Err(Error::HashMismatch(hash, mirrors.instructions_hash.borrow().clone()))
         } else {
-          *instructions_mutex.lock().unexpected("") = text.text()?;
+          instructions = text.text()?;
           Ok(())
         }
       };
@@ -38,16 +37,15 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
         break;
       } else if result.is_err() && retry == 2 {
         //TODO: This is bound to one day go wrong
-        return Err("Couldn't fetch instructions.json".to_string().into());
+        return Err(Error::OutOfRetries("Couldn't fetch instructions.json"));
       } else {
         warn!("Removing mirror: {:#?}", &mirror);
         mirrors.remove(mirror);
       }
     }
-    let instructions_text : String = instructions_mutex.into_inner().map_err( | error_message | { Error::from(error_message) })?;
-    let instructions_data = match json::parse(&instructions_text) {
+    let instructions_data = match json::parse(&instructions) {
       Ok(result) => result,
-      Err(e) => return Err(format!("Invalid JSON: {}", e).into())
+      Err(e) => return Err(Error::InvalidJson("instructions.json".to_string(), instructions))
     };
     let mut instructions = Vec::with_capacity(instructions_data.len());
     instructions_data.into_inner().iter().for_each(|instruction| {

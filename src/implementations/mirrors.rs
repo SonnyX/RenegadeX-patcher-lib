@@ -1,3 +1,13 @@
+use std::time::Duration;
+
+use crate::structures::{Error, LauncherInfo, Mirror, Mirrors};
+use crate::functions::download_file;
+
+use log::{trace, error};
+use std::sync::{Arc, Mutex};
+
+use futures::future::join_all;
+
 impl Mirrors {
     pub fn new() -> Mirrors {
       Mirrors {
@@ -41,18 +51,9 @@ impl Mirrors {
     Downloads release.json from the renegade-x server and adds it to the struct
     */
     pub async fn get_mirrors(&mut self, location: &str) -> Result<(), Error> {
-      let mut release_json = match download_file(location.to_string(), Duration::from_secs(10)).await {
-        Ok(result) => result,
-        Err(e) => return Err(format!("Is your internet down? {}", e).into())
-      };
-      let release_json_response = match release_json.text() {
-        Ok(result) => result,
-        Err(e) => return Err(format!("mirrors.rs: Corrupted response: {}", e).into())
-      };
-      let release_data = match json::parse(&release_json_response) {
-        Ok(result) => result,
-        Err(e) => return Err(format!("mirrors.rs: Invalid JSON: {}", e).into())
-      };
+      let mut release_json = download_file(location.to_string(), Duration::from_secs(10)).await?;
+      let release_json_response = release_json.text()?;
+      let release_data = json::parse(&release_json_response)?;
       self.launcher_info = Some(LauncherInfo {
         version_name: release_data["launcher"]["version_name"].as_string(),
         version_number: release_data["launcher"]["version_number"].as_usize().unexpected(&format!("mirrors.rs: Could not cast JSON version_number as a usize, input was {}", release_data["game"]["version_number"])),

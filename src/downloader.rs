@@ -4,11 +4,6 @@ use std::time::Duration;
 use crate::traits::Error;
 use crate::traits::ExpectUnwrap;
 
-/// A Response to a submitted `Request`.
-pub struct Response {
-    parts: download_async::http::response::Parts,
-    body: Vec<u8>,
-}
 impl Response {
   pub fn new(parts: download_async::http::response::Parts, body: Vec<u8>) -> Self {
     Self {
