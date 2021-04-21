@@ -103,24 +103,23 @@ impl Mirrors {
     pub async fn test_mirrors(&mut self) -> Result<(), Error> {
       let mut handles = Vec::new();
       for i in 0..self.mirrors.len() {
-        let mirror = self.mirrors[i].clone();
-        handles.push(mirror.test_mirror());
+        let mirror = self.mirrors[i].clone().test_mirror();
+        handles.push(mirror);
       }
       let mirrors = join_all(handles).await;
-      for mirror in mirrors {
-        for i in 0..self.mirrors.len() {
-          if self.mirrors[i].address == mirror.address {
-            self.mirrors[i] = mirror;
-            break;
-          }
+      self.mirrors.clear();
+      for result in mirrors {
+        match result {
+          Ok(mirror) => self.mirrors.push(mirror),
+          Err(e) => error!("Testing mirror failed: {}", e)
         }
       }
       if self.mirrors.len() > 1 {
-        self.mirrors.sort_by(|a,b| b.speed.partial_cmp(&a.speed).unexpected(&format!("mirrors.rs: Couldn't compare a.speed with b.speed.")));
+        self.mirrors.sort_by(|a,b| b.speed.partial_cmp(&a.speed).expect("mirrors.rs: Couldn't compare a.speed with b.speed."));
         let best_speed = self.mirrors[0].speed;
-        for mut elem in self.mirrors.iter_mut() {
+        for elem in self.mirrors.iter() {
           if elem.speed < best_speed / 4.0 {
-            elem.enabled = Arc::new(Mutex::new(false));
+            *(elem.enabled.lock()?) = false;
           }
         }
       }

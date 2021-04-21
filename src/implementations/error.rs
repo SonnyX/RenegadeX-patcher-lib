@@ -26,10 +26,12 @@ impl From<download_async::http::Error> for Error {
   }
 }
 
-impl<T: 'static> From<std::sync::PoisonError<T>> for Error {
+impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for Error {
   #[inline(always)]
-  fn from(error: std::sync::PoisonError<T>) -> Self {
-    Self::MutexPoisoned(Box::new(error))
+  fn from(error: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>) -> Self {
+    use std::error::Error;
+    let error = error.source().unwrap();
+    Self::MutexPoisoned(&error.to_string())
   }
 }
 
