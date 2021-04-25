@@ -3,10 +3,9 @@ use std::time::Duration;
 
 use crate::structures::{Error, Mirrors, Instruction};
 use crate::functions::download_file;
-use crate::traits::{ExpectUnwrap,BorrowUnwrap};
 use crate::traits::AsString;
 
-use log::warn;
+use log::{warn, error};
 use sha2::{Sha256, Digest};
 
 pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instruction>, Error> {
@@ -16,7 +15,7 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
     // todo: rewrite to have a race to fetch instructions the fastest
     let mut instructions : String = "".to_string();
     for retry in 0_usize..3_usize {
-      let mirror = mirrors.get_mirror();
+      let mirror = mirrors.get_mirror()?;
       let result : Result<(),Error> = {
         let url = format!("{}/instructions.json", &mirror.address);
   
@@ -26,8 +25,8 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
         let mut sha256 = Sha256::new();
         sha256.write(&bytes)?;
         let hash = hex::encode_upper(sha256.finalize());
-        if &hash != mirrors.instructions_hash.borrow() {
-          Err(Error::HashMismatch(hash, mirrors.instructions_hash.borrow().clone()))
+        if &hash != mirrors.instructions_hash.as_ref().ok_or_else(|| Error::None(format!("Couldn't unwrap instructions_hash of the mirrors object")))? {
+          Err(Error::HashMismatch(hash, mirrors.instructions_hash.as_ref().ok_or_else(|| Error::None(format!("Couldn't unwrap instructions_hash of the mirrors object")))?.clone()))
         } else {
           instructions = text.text()?;
           Ok(())
@@ -35,10 +34,16 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
       };
       if result.is_ok() {
         break;
-      } else if result.is_err() && retry == 2 {
+      } else if retry == 2 {
         //TODO: This is bound to one day go wrong
         return Err(Error::OutOfRetries("Couldn't fetch instructions.json"));
       } else {
+        match result.unwrap_err() {
+          Error::DownloadTimeout(e) => {},
+          Error::DownloadError(e) => {},
+          Error::HttpError(e) => {},
+          _ => {}
+        };
         warn!("Removing mirror: {:#?}", &mirror);
         mirrors.remove(mirror);
       }
@@ -49,16 +54,23 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
     };
     let mut instructions = Vec::with_capacity(instructions_data.len());
     instructions_data.into_inner().iter().for_each(|instruction| {
-      instructions.push(Instruction {
-        path:                 instruction["Path"].as_string().replace("\\", "/"),
-        previous_hash:        instruction["OldHash"].as_string_option(),
-        newest_hash:          instruction["NewHash"].as_string_option(),
-        full_vcdiff_hash:     instruction["CompressedHash"].as_string_option(),
-        delta_vcdiff_hash:    instruction["DeltaHash"].as_string_option(),
-        full_vcdiff_size:     instruction["FullReplaceSize"].as_usize().unexpected(""),
-        delta_vcdiff_size:    instruction["DeltaSize"].as_usize().unexpected(""),
-        has_delta:            instruction["HasDelta"].as_bool().unexpected("")
-      });
+      let mut closure = || -> Result<(), Error> {
+        instructions.push(Instruction {
+          path:                 instruction["Path"].as_string().replace("\\", "/"),
+          previous_hash:        instruction["OldHash"].as_string_option(),
+          newest_hash:          instruction["NewHash"].as_string_option(),
+          full_vcdiff_hash:     instruction["CompressedHash"].as_string_option(),
+          delta_vcdiff_hash:    instruction["DeltaHash"].as_string_option(),
+          full_vcdiff_size:     instruction["FullReplaceSize"].as_usize().ok_or_else(|| Error::None(format!("retrieve_instructions.rs: Could not cast JSON version_number as a usize, input was {}", instruction["FullReplaceSize"])))?,
+          delta_vcdiff_size:    instruction["DeltaSize"].as_usize().ok_or_else(|| Error::None(format!("retrieve_instructions.rs: Could not cast JSON version_number as a usize, input was {}", instruction["DeltaSize"])))?,
+          has_delta:            instruction["HasDelta"].as_bool().ok_or_else(|| Error::None(format!("retrieve_instructions.rs: Could not cast JSON version_number as a usize, input was {}", instruction["HasDelta"])))?
+        });
+        Ok(())
+      };
+      match closure() {
+        Ok(()) => {},
+        Err(e) => error!("Transforming instructions failed for instruction {}, with error: {}", instruction, e)
+      };
     });
     Ok(instructions)
   }

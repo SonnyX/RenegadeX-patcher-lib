@@ -31,7 +31,7 @@ impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for Error {
   fn from(error: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>) -> Self {
     use std::error::Error;
     let error = error.source().unwrap();
-    Self::MutexPoisoned(&error.to_string())
+    Self::MutexPoisoned(error.to_string())
   }
 }
 

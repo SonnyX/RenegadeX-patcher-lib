@@ -7,11 +7,11 @@ impl Mirror {
   pub(crate) async fn test_mirror(self) -> Result<Mirror, Error> {
     let start = Instant::now();
     let mut url = format!("{}", self.address.to_owned());
-    url.truncate(url.rfind('/').ok_or_else(|| Error::None("Couldn't find a / in the url"))? + 1);
+    url.truncate(url.rfind('/').ok_or_else(|| Error::None(format!("Couldn't find a / in the url")))? + 1);
     url.push_str("10kb_file");
     let download_response = download_file(url, Duration::from_secs(2)).await?;
     let duration = start.elapsed();
-    let content_length = download_response.headers().get("content-length").ok_or_else(|| Error::None("No header named: content_length"))?;
+    let content_length = download_response.headers().get("content-length").ok_or_else(|| Error::None(format!("No header named: content_length")))?;
 
     if content_length != "10000" {
       return Err(Error::InvalidServer());

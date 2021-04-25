@@ -5,13 +5,13 @@ pub enum Error {
 	FutureWasPaused(),
 	FutureCancelled(),
 	HashMismatch(String, String),
-	MutexPoisoned(&'static str),
+	MutexPoisoned(String),
 	IoError(std::io::Error),
 	NoMirrors(),
 	NotUtf8(std::string::FromUtf8Error),
 	JsonError(json::Error),
 
-	None(&'static str),
+	None(String),
 	InvalidServer(),
 
 	/// Invalid Json, first argument is the file, second argument is the text of the file

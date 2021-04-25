@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::structures::{Error, LauncherInfo, Mirror, Mirrors};
 use crate::functions::download_file;
+use crate::traits::AsString;
 
 use log::{trace, error};
 use std::sync::{Arc, Mutex};
@@ -22,29 +23,36 @@ impl Mirrors {
       self.mirrors.is_empty()
     }
   
-    pub fn increment_error_count(&self, entry: &Mirror) {
+    pub fn increment_error_count(&self, entry: &Mirror) -> Result<(), Error> {
       for i in 0..self.mirrors.len() {
         if &self.mirrors[i].ip == &entry.ip {
           let error_count = self.mirrors[i].error_count.clone();
-          *error_count.lock().unexpected("mirrors.rs: Couldn't lock error_count field.") += 1;
-          if *error_count.lock().unexpected("mirrors.rs: Couldn't lock error_count field.") == 4 {
+          let mut error_count = *error_count.lock().or_else(|_| Err(Error::MutexPoisoned(format!("mirrors.rs: Couldn't lock \"error_count\" field."))))?;
+          error_count += 1;
+          if error_count == 4 {
             self.disable(i);
           }
+          break;
         }
       }
+      Ok(())
     }
   
-    pub fn remove(&self, entry: Mirror) {
+    pub fn remove(&self, entry: Mirror) -> Result<(), Error> {
       for i in 0..self.mirrors.len() {
         if self.mirrors[i].ip == entry.ip {
           self.disable(i);
+          break;
         }
       }
+      Ok(())
     }
   
-    pub fn disable(&self, entry: usize) {
-      let mirrors = self.mirrors[entry].enabled.clone();
-      *mirrors.lock().unexpected("mirrors.rs: Couldn't lock enabled field.") = false;
+    pub fn disable(&self, entry: usize)  -> Result<(), Error> {
+      let enabled_mutex = self.mirrors[entry].enabled.clone();
+      let mut enabled = *enabled_mutex.lock().or_else(|_| Err(Error::MutexPoisoned(format!("mirrors.rs: Couldn't lock the \"enabled\" field."))))?;
+      enabled = false;
+      Ok(())
     }
   
     /**
@@ -56,7 +64,7 @@ impl Mirrors {
       let release_data = json::parse(&release_json_response)?;
       self.launcher_info = Some(LauncherInfo {
         version_name: release_data["launcher"]["version_name"].as_string(),
-        version_number: release_data["launcher"]["version_number"].as_usize().unexpected(&format!("mirrors.rs: Could not cast JSON version_number as a usize, input was {}", release_data["game"]["version_number"])),
+        version_number: release_data["launcher"]["version_number"].as_usize().ok_or_else(|| Error::None(format!("mirrors.rs: Could not cast JSON version_number as a usize, input was {}", release_data["game"]["version_number"])))?,
         patch_url: release_data["launcher"]["patch_url"].as_string(),
         patch_hash: release_data["launcher"]["patch_hash"].as_string(),
         prompted: false,
@@ -79,22 +87,21 @@ impl Mirrors {
       }
   
       self.instructions_hash = Some(release_data["game"]["instructions_hash"].as_string());
-      self.version_number = Some(release_data["game"]["version_number"].as_u64().unexpected(&format!("mirrors.rs: Could not cast JSON version_number as a u64, input was {}", release_data["game"]["version_number"])).to_string());
+      self.version_number = Some(release_data["game"]["version_number"].as_u64().ok_or_else(|| Error::None(format!("mirrors.rs: Could not cast JSON version_number as a u64, input was {}", release_data["game"]["version_number"])))?.to_string());
       Ok(())
     }
   
     
-    pub fn get_mirror(&self) -> Mirror {
+    pub fn get_mirror(&self) -> Result<Mirror, Error> {
       for i in 0.. {
         for mirror in self.mirrors.iter() {
-          if *mirror.enabled.lock().unexpected("mirrors.rs: Couldn't get exclusive lock on mirror.enabled.") && Arc::strong_count(&mirror.address) == i {
+          if *mirror.enabled.lock().or_else(|_| Err(Error::None(format!("mirrors.rs: Couldn't get exclusive lock on mirror.enabled."))))? && Arc::strong_count(&mirror.address) == i {
             trace!("i: {}, mirror: {}", i, &mirror.address);
-            return mirror.clone();
+            return Ok(mirror.clone());
           }
         }
       }
-      error!("No mirrors were found!");
-      panic!("No mirrors found?");
+      return Err(Error::NoMirrors());
     }
   
     /**
