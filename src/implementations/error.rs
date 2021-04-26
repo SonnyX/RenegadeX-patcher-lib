@@ -10,6 +10,14 @@ impl std::fmt::Display for Error {
   }
 }
 
+impl From<std::path::StripPrefixError> for Error {
+  #[inline(always)]
+  fn from(error: std::path::StripPrefixError) -> Self {
+    error!("std::path::StripPrefixError: {:#?}", error);
+    Self::StripPrefix(error)
+  }
+}
+
 impl From<download_async::http::uri::InvalidUri> for Error {
   #[inline(always)]
   fn from(error: download_async::http::uri::InvalidUri) -> Self {

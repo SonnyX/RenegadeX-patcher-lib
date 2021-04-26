@@ -1,4 +1,3 @@
-use std::sync::{Arc,Mutex};
 use std::time::{Duration, Instant};
 use crate::structures::{Error, Mirror};
 use crate::functions::download_file;

@@ -24,3 +24,12 @@ pub(crate) use response::Response as Response;
 
 mod error;
 pub use error::Error as Error;
+
+mod update;
+pub(crate) use update::Update as Update;
+
+mod directory;
+pub(crate) use directory::Directory as Directory;
+
+mod file;
+pub(crate) use file::File as File;

@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use sha2::{Sha256, Digest};
-use crate::traits::Error;
+use crate::structures::Error;
 
 ///
 /// Opens a file and calculates it's SHA256 hash

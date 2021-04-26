@@ -17,6 +17,7 @@ pub enum Error {
 	/// Invalid Json, first argument is the file, second argument is the text of the file
 	InvalidJson(String, String),
 	OutOfRetries(&'static str),
+	StripPrefix(std::path::StripPrefixError),
 
 
 	// Download related errors:
