@@ -19,7 +19,7 @@ impl Directory {
       }
     }
   
-    /// Get or Create a subdirectory
+    /// Get or Create a subdirectory and returns the Directory of that subdirectory
     pub fn get_or_create_subdirectory(&mut self, name: OsString) -> Result<&mut Directory, Error> {
       for index in 0..self.subdirectories.len() {
         if self.subdirectories[index].name == name {

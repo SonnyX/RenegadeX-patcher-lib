@@ -33,3 +33,6 @@ pub(crate) use directory::Directory as Directory;
 
 mod file;
 pub(crate) use file::File as File;
+
+mod buffered_writer;
+pub(crate) use buffered_writer::BufWriter as BufWriter;

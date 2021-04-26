@@ -1,48 +1,6 @@
 use std::io::prelude::*; 
 use std::io::{self, SeekFrom};
-use std::time::Duration;
-use crate::traits::Error;
-use crate::traits::ExpectUnwrap;
-
-impl Response {
-  pub fn new(parts: download_async::http::response::Parts, body: Vec<u8>) -> Self {
-    Self {
-      parts,
-      body
-    }
-  }
-
-  pub fn headers(&self) -> &download_async::http::HeaderMap {
-    &self.parts.headers
-  }
-
-  pub fn text(&mut self) -> Result<String, std::string::FromUtf8Error> {
-    String::from_utf8(self.body.clone())
-  }
-}
-
-impl AsRef<[u8]> for Response {
-    #[inline]
-    fn as_ref(&self) -> &[u8] {
-        self.body.as_ref()
-    }
-}
-
- 
-
-pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64)> {
-    inner: Option<W>,
-    buf: Vec<u8>,
-    written: u64,
-    panicked: bool,
-    callback: F,
-}
-
-/**
- This should have a buffer that allows for more than 1 MB
- When the buffer reaches 1MB it should write out all data in the buffer to the file, and then clear the buffer.
- 
-*/
+use crate::structures::{BufWriter, Error};
 
 impl<W: Write, F: FnMut(&mut W, &mut u64)> BufWriter<W, F> {
     pub fn new(inner: W, call: F) -> BufWriter<W,F> {
