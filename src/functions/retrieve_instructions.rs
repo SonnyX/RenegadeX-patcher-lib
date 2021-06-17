@@ -19,14 +19,14 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
       let result : Result<(),Error> = {
         let url = format!("{}/instructions.json", &mirror.address);
   
-        let mut text = download_file(url, Duration::from_secs(60)).await?;
+        let mut text = download_file(url.clone(), Duration::from_secs(60)).await?;
         let bytes = text.as_ref();
         // check instructions hash
         let mut sha256 = Sha256::new();
         sha256.write(&bytes)?;
         let hash = hex::encode_upper(sha256.finalize());
         if &hash != mirrors.instructions_hash.as_ref().ok_or_else(|| Error::None(format!("Couldn't unwrap instructions_hash of the mirrors object")))? {
-          Err(Error::HashMismatch(hash, mirrors.instructions_hash.as_ref().ok_or_else(|| Error::None(format!("Couldn't unwrap instructions_hash of the mirrors object")))?.clone()))
+          Err(Error::HashMismatch(url, hash, mirrors.instructions_hash.as_ref().ok_or_else(|| Error::None(format!("Couldn't unwrap instructions_hash of the mirrors object")))?.clone()))
         } else {
           instructions = text.text()?;
           Ok(())
@@ -38,14 +38,14 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<Vec<Instr
         //TODO: This is bound to one day go wrong
         return Err(Error::OutOfRetries("Couldn't fetch instructions.json"));
       } else {
-        match result.unwrap_err() {
+        match result.unwrap_err() { // todo: Decide when to remove mirror, and when not to remove it
           Error::DownloadTimeout(e) => {},
           Error::DownloadError(e) => {},
           Error::HttpError(e) => {},
           _ => {}
         };
         warn!("Removing mirror: {:#?}", &mirror);
-        mirrors.remove(mirror);
+        mirrors.remove(mirror)?;
       }
     }
     let instructions_data = match json::parse(&instructions) {

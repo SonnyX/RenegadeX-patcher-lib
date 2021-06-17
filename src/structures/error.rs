@@ -4,7 +4,7 @@ pub enum Error {
 	FileLocked(),
 	FutureWasPaused(),
 	FutureCancelled(),
-	HashMismatch(String, String),
+	HashMismatch(String, String, String),
 	MutexPoisoned(String),
 	IoError(std::io::Error),
 	NoMirrors(),
