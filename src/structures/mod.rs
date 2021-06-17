@@ -25,8 +25,8 @@ pub(crate) use response::Response as Response;
 mod error;
 pub use error::Error as Error;
 
-mod update;
-pub(crate) use update::Update as Update;
+mod game_state;
+pub(crate) use game_state::GameState as GameState;
 
 mod directory;
 pub(crate) use directory::Directory as Directory;
@@ -36,3 +36,6 @@ pub(crate) use file::File as File;
 
 mod buffered_writer;
 pub(crate) use buffered_writer::BufWriter as BufWriter;
+
+mod progress;
+pub(crate) use progress::Progress as Progress;

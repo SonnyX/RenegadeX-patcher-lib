@@ -24,4 +24,5 @@ pub enum Error {
 	HttpError(download_async::http::Error),
 	DownloadTimeout(tokio::time::error::Elapsed),
 	DownloadError(Box<dyn std::error::Error + Sync + std::marker::Send>),
+	DownloadAsyncError(download_async::Error),
 }

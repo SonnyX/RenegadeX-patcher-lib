@@ -34,6 +34,15 @@ impl From<download_async::http::Error> for Error {
   }
 }
 
+
+impl From<download_async::Error> for Error {
+  #[inline(always)]
+  fn from(error: download_async::Error) -> Self {
+    error!("download_async::Error: {:#?}", error);
+    Self::DownloadAsyncError(error)
+  }
+}
+
 impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for Error {
   #[inline(always)]
   fn from(error: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>) -> Self {

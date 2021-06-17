@@ -1,5 +1,5 @@
 #[derive(Debug, Clone)]
-pub enum Update {
+pub enum GameState {
   Unknown,
   UpToDate,
   Resume,

@@ -229,50 +229,9 @@ impl Downloader {
   ///
   ///
   ///
-  pub fn update_available(&self) -> Result<Update, String> {
-    if self.mirrors.is_empty() {
-      return Err("No mirrors found, aborting! Did you retrieve mirrors?".to_string());
-    }
-    if self.renegadex_location.is_none() {
-      return Err("The RenegadeX location hasn't been set, aborting!".to_string());
-    }
-    let patch_dir_path = format!("{}/patcher/", self.renegadex_location.borrow()).replace("//", "/");
-    match std::fs::read_dir(patch_dir_path) {
-      Ok(iter) => {
-        if iter.count() != 0 {
-          let mut state = self.state.lock().unexpected("");
-          state.update = Update::Resume;
-          drop(state);
-          return Ok(Update::Resume);
-        }
-      },
-      Err(_e) => {}
-    };
-
-    let path = format!("{}UDKGame/Config/DefaultRenegadeX.ini", self.renegadex_location.borrow());
-    let conf = match Ini::load_from_file(&path) {
-      Ok(file) => file,
-      Err(_e) => {
-        let mut state = self.state.lock().unexpected("");
-        state.update = Update::Full;
-        drop(state);
-        return Ok(Update::Full);
-      }
-    };
-
-    let section = conf.section(Some("RenX_Game.Rx_Game".to_owned())).unexpected("");
-    let game_version_number = section.get("GameVersionNumber").unexpected("");
-
-    if self.mirrors.version_number.borrow() != game_version_number {
-      let mut state = self.state.lock().unexpected("");
-      state.update = Update::Delta;
-      drop(state);
-      return Ok(Update::Delta);
-    }
-    let mut state = self.state.lock().unexpected("");
-    state.update = Update::UpToDate;
-    drop(state);
-    Ok(Update::UpToDate)
+  pub fn update_available(&self) -> Result<GameState, String> {
+    // moved to update_available.rs
+    crate::functions::get_game_state(&self.Mirrors, self.renegadex_location)
   }
 
   ///
