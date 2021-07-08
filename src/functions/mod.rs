@@ -7,6 +7,7 @@ mod read_dir;
 mod flow;
 mod get_game_state;
 mod apply_patch;
+mod apply_instructions;
 
 pub(crate) use retrieve_instructions::retrieve_instructions as retrieve_instructions;
 pub(crate) use convert_bytes::convert as convert;
