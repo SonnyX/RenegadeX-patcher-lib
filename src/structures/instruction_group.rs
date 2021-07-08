@@ -23,6 +23,7 @@ pub struct PatchEntry {
   /// The expected target hash after patching
   pub target_hash: String,
 }
+/*
 #[derive(Debug,Clone)]
 pub struct Instruction {
   /// Path to which the instruction applies
@@ -42,6 +43,7 @@ pub struct Instruction {
   /// Does file have a Delta vcdiff patch file
   pub has_delta: bool
 }
+*/
 // JSON example
 /*
 Same old hash as old hash
