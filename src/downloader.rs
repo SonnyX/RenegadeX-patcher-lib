@@ -72,7 +72,7 @@ pub fn download_file_with_credentials(url: String, timeout: Duration, credential
                 let req = req.uri(url.clone())
                 .header("host", url.host().unwrap())
                 .header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")))
-                .header(hyper::header::AUTHORIZATION, base64::encode(format!("{}:{}", credentials.0, credentials.1)));
+                .header(hyper::header::AUTHORIZATION, format!("Basic {}", base64::encode(format!("{}:{}", credentials.0, credentials.1))));
 
 
                 let req = req.body(hyper::Body::empty())?;
