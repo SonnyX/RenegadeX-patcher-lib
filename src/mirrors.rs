@@ -99,6 +99,7 @@ pub struct LauncherInfo {
 
 pub struct Mirrors {
   pub mirrors: Vec<Mirror>,
+  pub instructions_password_required: Option<bool>,
   pub instructions_hash: Option<String>,
   pub version_number: Option<String>,
   pub launcher_info: Option<LauncherInfo>,
@@ -108,6 +109,7 @@ impl Mirrors {
   pub fn new() -> Mirrors {
     Mirrors {
       mirrors: Vec::new(),
+      instructions_password_required: None,
       instructions_hash: None,
       version_number: None,
       launcher_info: None,
@@ -182,7 +184,7 @@ impl Mirrors {
         }
       }
     }
-
+    self.instructions_password_required = release_data["game"]["instructions_password_required"].as_bool();
     self.instructions_hash = Some(release_data["game"]["instructions_hash"].as_string());
     self.version_number = Some(release_data["game"]["version_number"].as_u64().unexpected(&format!("mirrors.rs: Could not cast JSON version_number as a u64, input was {}", release_data["game"]["version_number"])).to_string());
     Ok(())

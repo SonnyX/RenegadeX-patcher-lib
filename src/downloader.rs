@@ -61,6 +61,39 @@ impl AsRef<[u8]> for Response {
     Ok(Response::new(result.0, result.1))
 }
 
+pub fn download_file_with_credentials(url: String, timeout: Duration, credentials: (String, String)) -> Result<Response, Error> {
+    let mut rt = tokio::runtime::Builder::new().basic_scheduler().enable_time().enable_io().build().unwrap();
+    let url : hyper::Uri = url.parse::<hyper::Uri>()?;
+    let result : tokio::task::JoinHandle<std::result::Result<std::result::Result<(http::response::Parts, std::vec::Vec<u8>), Error>, tokio::time::Elapsed>> = rt.enter(|| {
+        rt.spawn(async move {
+            tokio::time::timeout(timeout,
+            async move {
+                let req = hyper::Request::builder();
+                let req = req.uri(url.clone())
+                .header("host", url.host().unwrap())
+                .header("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")))
+                .header(hyper::header::AUTHORIZATION, base64::encode(format!("{}:{}", credentials.0, credentials.1)));
+
+
+                let req = req.body(hyper::Body::empty())?;
+
+                let https = hyper_tls::HttpsConnector::new();
+                let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+                let response = client.request(req).await?;
+
+                let mut parts = response.into_parts();
+                let mut body = vec![];
+                while let Some(option) = parts.1.next().await {
+                    body.append(&mut option.unexpected("downloader.rs: Unwrap on option failed.").to_vec());
+                }
+                Ok((parts.0, body))
+            }).await
+        })
+    });
+    let result = rt.block_on(result).unexpected("downloader.rs: Couldn't do first unwrap on rt.block_on().")??;
+    Ok(Response::new(result.0, result.1))
+}
+
 pub struct BufWriter<W: Write, F: FnMut(&mut W, &mut u64)> {
     inner: Option<W>,
     buf: Vec<u8>,

@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 mod mirrors;
 mod downloader;
 pub mod traits;
-use downloader::{BufWriter, download_file};
+use downloader::{BufWriter, download_file, download_file_with_credentials};
 use std::time::Duration;
 use mirrors::{Mirrors, Mirror, ResolverService};
 use traits::{AsString, BorrowUnwrap, Error, ExpectUnwrap};
@@ -172,6 +172,7 @@ pub struct Downloader {
   renegadex_location: Option<String>, //Os dependant
   version_url: Option<String>,
   mirrors: Mirrors,
+  instructions_credentials: Option<(String, String)>,
   instructions: Vec<Instruction>, //instructions.json
   pub state: Arc<Mutex<Progress>>,
   download_hashmap: Mutex<BTreeMap<String, DownloadEntry>>,
@@ -191,6 +192,7 @@ impl Downloader {
       renegadex_location: None,
       version_url: None,
       mirrors: Mirrors::new(),
+      instructions_credentials: None,
       instructions: Vec::new(),
       state: Arc::new(Mutex::new(Progress::new())),
       download_hashmap: Mutex::new(BTreeMap::new()),
@@ -213,6 +215,14 @@ impl Downloader {
   ///
   pub fn set_location(&mut self, loc: String) {
     self.renegadex_location = Some(format!("{}/", loc).replace("\\","/").replace("//","/"));
+  }
+
+  ///
+  ///
+  ///
+  ///
+  pub fn set_credentials(&mut self, username: String, password: String) {
+    self.instructions_credentials = Some((username, password));
   }
   
   ///
@@ -317,6 +327,7 @@ impl Downloader {
     if self.instructions.is_empty() {
       self.retrieve_instructions()?;
     }
+
     self.process_instructions();
     info!("Retrieved instructions, checking hashes.");
     self.check_hashes();
@@ -343,6 +354,9 @@ impl Downloader {
     if !self.instructions.is_empty() {
       return Ok(());
     }
+    if self.mirrors.instructions_password_required.unwrap() && self.instructions_credentials.is_none() {
+      return Err(Error::new(format!("You need to be authenticated in order to retrieve the instructions of {}", self.mirrors.version_number.borrow())));
+    }
     let instructions_mutex : Mutex<String> = Mutex::new("".to_string());
     for retry in 0..3 {
       let mirror = self.mirrors.get_mirror();
@@ -350,7 +364,12 @@ impl Downloader {
         let url = format!("{}/instructions.json", &mirror.address);
         //println!("{}", &instructions_url);
         //let text = reqwest::get(&instructions_url)?.text().unexpected(concat!(module_path!(),":",file!(),":",line!()));
-        let mut text = download_file(url, Duration::from_secs(60))?;
+        let mut text;
+        if self.mirrors.instructions_password_required.unwrap() {
+          text = download_file_with_credentials(url, Duration::from_secs(60), self.instructions_credentials.borrow().clone())?;
+        } else {
+          text = download_file(url, Duration::from_secs(60))?;
+        }
         let text = text.text()?;
         // check instructions hash
         let mut sha256 = Sha256::new();
