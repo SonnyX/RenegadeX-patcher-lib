@@ -8,8 +8,10 @@ mod flow;
 mod get_game_state;
 mod apply_patch;
 mod apply_instructions;
+mod parse_instructions;
 
 pub(crate) use retrieve_instructions::retrieve_instructions as retrieve_instructions;
+pub(crate) use parse_instructions::parse_instructions as parse_instructions;
 pub(crate) use convert_bytes::convert as convert;
 pub(crate) use download::download_file as download_file;
 pub(crate) use get_hash::get_hash as get_hash;
