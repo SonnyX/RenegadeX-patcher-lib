@@ -35,12 +35,48 @@ pub(crate) fn parse_instructions(instructions: String) -> Result<Vec<Instruction
 mod myTests {
     const instructions_raw : &'static str = include_str!("../../tests/instructions.json");
     use super::parse_instructions;
+    use crate::structures::Instruction;
     use super::Error;
+    use std::{cmp::Eq, collections::HashMap, hash::Hash};
 
     #[test]
     pub fn myTest() -> Result<(),Error> {
         let instructions = parse_instructions(instructions_raw.to_string())?;
-        instructions.
+        let groups = instructions.group_by_key(|a| match a.newest_hash.as_ref() { Some(a) => a.to_owned(), None => String::new()} );
+        let newest_hash_groups : Vec<&Vec<Instruction>> = groups.iter().filter(|array| array.len() > 1).collect();
+        //println!("{:#?}", newest_hash_groups);
+
+        let groups = instructions.group_by_key(|a| match a.previous_hash.as_ref() { Some(a) => a.to_owned(), None => String::new()} );
+        let previous_hash_groups : Vec<&Vec<Instruction>> = groups.iter().filter(|array| array.len() > 1).collect();
+        //println!("{:#?}", previous_hash_groups);
+
+        let new_files = instructions.iter().filter(|instruction| instruction.previous_hash.is_none()).cloned().collect::<Vec<Instruction>>();
+        let deleted_files = instructions.iter().filter(|instruction| instruction.newest_hash.is_none()).cloned().collect::<Vec<Instruction>>();
+        let moved_files = new_files.iter().filter(|instruction| {
+          let hash = instruction.newest_hash.as_ref().unwrap();
+          deleted_files.iter().any(|deleted_file| deleted_file.previous_hash.as_ref().unwrap().eq(hash))
+        }).cloned().collect::<Vec<Instruction>>();
+
+
+
+        let new_previous_hash_groups : Vec<&[Instruction]> = instructions.group_by(|a, b| (a.newest_hash.is_some() && b.previous_hash.is_some() && a.newest_hash.as_ref().unwrap() == b.previous_hash.as_ref().unwrap()) || (a.previous_hash.is_some() && b.newest_hash.is_some() && a.previous_hash.as_ref().unwrap() == b.newest_hash.as_ref().unwrap()) ).filter(|array| array.len() > 1).collect();
+        let delta_hash_groups : Vec<&[Instruction]> = instructions.group_by(|a, b| a.delta_vcdiff_hash.is_some() && b.delta_vcdiff_hash.is_some() && a.delta_vcdiff_hash.as_ref().unwrap() == b.delta_vcdiff_hash.as_ref().unwrap() ).filter(|array| array.len() > 1).collect();
+        let full_hash_groups : Vec<&[Instruction]> = instructions.group_by(|a, b| a.full_vcdiff_hash.is_some() && b.full_vcdiff_hash.is_some() && a.full_vcdiff_hash.as_ref().unwrap() == b.full_vcdiff_hash.as_ref().unwrap() ).filter(|array| array.len() > 1).collect();
+        //instructions.
         Ok(())
     }
+
+    trait GroupByKey {
+      fn group_by_key<'a, F, T>(self: &Self, pred: F) -> Vec<Vec<Instruction>> where F: FnMut(&Instruction) -> T, T: Eq + Hash;
+    }
+
+  impl GroupByKey for Vec<Instruction> {
+    fn group_by_key<F, T>(self: &Vec<Instruction>, mut pred: F) -> Vec<Vec<Instruction>> where F: FnMut(&Instruction) -> T, T: Eq + Hash {
+      let mut m : HashMap<T, Vec<Instruction>> = HashMap::new();
+      for item in self.iter() {
+        m.entry(pred(item)).or_insert_with(Vec::new).push(item.to_owned())
+      }
+      m.values().cloned().collect::<Vec<Vec<Instruction>>>()
+    }
+  }
 }

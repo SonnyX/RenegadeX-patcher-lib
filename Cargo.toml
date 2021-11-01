@@ -2,7 +2,7 @@
 name = "renegadex_patcher"
 version = "0.9.5"
 authors = ["SonnyX"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 json = "0.12"
