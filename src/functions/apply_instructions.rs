@@ -1,46 +1,64 @@
 use std::path::Path;
 
-use crate::functions::get_hash;
-use crate::structures::{Error, InstructionGroup};
+use crate::functions::{get_hash, delete_file, restore_backup};
+use crate::structures::{Action, Error, Instruction};
 
-pub(crate) async fn apply_instructions(group: InstructionGroup) -> Result<(), Error> {
-  let hash = group.hash.ok_or_else(|| Error::None(format!("")))?;
-    // First hash the most important candidates in group
-    let mut file_path_1 = None;
-    for file_path in group.previous_hash_matches {
-        if Path::new(&file_path).exists() {
-            let hash = get_hash(&file_path)?;
-            if hash.eq(&hash) {
-                file_path_1 = Some(file_path.clone());
-                break;
+pub(crate) async fn apply_instruction(instruction: &Instruction) -> Result<Action, Error> {
+    let backup_path = format!("{}.bck", &instruction.path);
+    let mut backup_hash = None;
+    let path_exists = Path::new(&instruction.path).exists();
+    let backup_exists = Path::new(&backup_path).exists();
+    // Determine wether we have to delete files, update them, or add them.
+    if let Some(newest_hash) = instruction.newest_hash.clone() {
+        let mut hash = None;
+        // Update or download
+        if path_exists {
+            hash = Some(get_hash(&instruction.path)?);
+            if newest_hash.eq(&hash.clone().unwrap()) {
+                // File is already newest file
+                if backup_exists {
+                    delete_file(&backup_path).await;
+                }
+                return Ok(Action::Nothing);
             }
         }
-    }
 
-    if let Some(file_path) = file_path_1 {
-        // Copy file over to new locations
-        for new_file_path in group.current_hash_matches {
-            tokio::fs::copy(&file_path, new_file_path).await?;
+        if backup_exists {
+            backup_hash = Some(get_hash(&backup_path)?);
+            if backup_hash.clone().map(|backup_hash| newest_hash.eq(&backup_hash)).unwrap() {
+                // Restore backup file
+                restore_backup(&instruction.path).await;
+                return Ok(Action::Nothing);
+            }
         }
-        return Ok(());
+
+        // File is not up to date
+        if let Some(previous_hash ) = instruction.previous_hash.clone() {
+            if path_exists && previous_hash.eq(&hash.clone().unwrap()) {
+                // Download delta
+                return Ok(Action::DownloadDelta);
+            } else {
+                // Check if there's a backup file, and restore it if it matches previous_hash
+                if backup_exists && previous_hash.eq(&backup_hash.clone().unwrap()) {
+                    // Restore backup file
+                    restore_backup(&instruction.path).await;
+                    return Ok(Action::DownloadDelta);
+                }
+                // Download full
+                return Ok(Action::DownloadFull);
+            }
+        }       
+
+        // Download full
+        return Ok(Action::DownloadFull);
+    } else {
+        // Delete file
+        if backup_exists {
+            delete_file(&backup_path).await;
+        }
+        if path_exists {
+            delete_file(&instruction.path).await;
+        }
     }
-
-    // - e.g. File gets changed
-
-    // Rename files
-
-    // Copy over files
-
-    /*
-       Same old hash as old hash
-     - Doesn't really matter unless one of them is missing!!!
-    Same old hash as new hash
-     - Copy files over if it exists duh :)
-     - Update the old hash to a newer hash afterwards if necessary...
-    Same new hash as new hash
-     - Copy files over after patch
-
-       */
-
-    Ok(())
+    Ok(Action::Nothing)
 }

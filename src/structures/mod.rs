@@ -14,7 +14,6 @@ mod launcher_info;
 pub(crate) use launcher_info::LauncherInfo as LauncherInfo;
 
 mod instruction_group;
-pub(crate) use instruction_group::InstructionGroup as InstructionGroup;
 
 mod instructions;
 pub(crate) use instructions::Instruction as Instruction;
@@ -39,3 +38,6 @@ pub(crate) use buffered_writer::BufWriter as BufWriter;
 
 mod progress;
 pub(crate) use progress::Progress as Progress;
+
+mod action;
+pub(crate) use action::Action as Action;

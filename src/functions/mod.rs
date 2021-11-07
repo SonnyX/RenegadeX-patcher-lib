@@ -1,5 +1,6 @@
 mod retrieve_instructions;
 mod convert_bytes;
+mod delete_file;
 mod download;
 mod get_hash;
 mod remove_unversioned;
@@ -9,7 +10,9 @@ mod get_game_state;
 mod apply_patch;
 mod apply_instructions;
 mod parse_instructions;
+mod restore_backup;
 
+pub(crate) use delete_file::delete_file as delete_file;
 pub(crate) use retrieve_instructions::retrieve_instructions as retrieve_instructions;
 pub(crate) use parse_instructions::parse_instructions as parse_instructions;
 pub(crate) use convert_bytes::convert as convert;
@@ -18,3 +21,4 @@ pub(crate) use get_hash::get_hash as get_hash;
 pub(crate) use remove_unversioned::remove_unversioned as remove_unversioned;
 pub(crate) use read_dir::remove_unversioned as read_dir;
 pub(crate) use get_game_state::get_game_state as get_game_state;
+pub(crate) use restore_backup::restore_backup as restore_backup;
