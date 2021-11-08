@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::functions::{get_hash, delete_file, restore_backup};
 use crate::structures::{Action, Error, Instruction};
 
-pub(crate) async fn apply_instruction(instruction: &Instruction) -> Result<Action, Error> {
+pub(crate) async fn determine_action(instruction: &Instruction) -> Result<Action, Error> {
     let backup_path = format!("{}.bck", &instruction.path);
     let mut backup_hash = None;
     let path_exists = Path::new(&instruction.path).exists();

@@ -8,7 +8,7 @@ mod read_dir;
 mod flow;
 mod get_game_state;
 mod apply_patch;
-mod apply_instructions;
+mod determine_action;
 mod parse_instructions;
 mod restore_backup;
 
