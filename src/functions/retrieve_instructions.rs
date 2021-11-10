@@ -1,13 +1,13 @@
 use std::io::Write;
 use std::time::Duration;
 
-use crate::structures::{Error, Mirrors};
+use crate::structures::{Error, Mirrors, SoftwareVersion};
 use crate::functions::download_file;
 
 use log::warn;
 use sha2::{Sha256, Digest};
 
-pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<String, Error> {
+pub(crate) async fn retrieve_instructions(software: &SoftwareVersion, mirrors: &Mirrors) -> Result<String, Error> {
   if mirrors.is_empty() {
     return Err(Error::NoMirrors());
   }
@@ -24,8 +24,8 @@ pub(crate) async fn retrieve_instructions(mirrors: &Mirrors) -> Result<String, E
       let mut sha256 = Sha256::new();
       sha256.write(&bytes)?;
       let hash = hex::encode_upper(sha256.finalize());
-      if &hash != mirrors.instructions_hash.as_ref().ok_or_else(|| Error::None(format!("Couldn't unwrap instructions_hash of the mirrors object")))? {
-        Err(Error::HashMismatch(url, hash, mirrors.instructions_hash.as_ref().ok_or_else(|| Error::None(format!("Couldn't unwrap instructions_hash of the mirrors object")))?.clone()))
+      if &hash != &software.instructions_hash {
+        Err(Error::HashMismatch(url, hash, software.instructions_hash.clone()))
       } else {
         instructions = text.text()?;
         Ok(())

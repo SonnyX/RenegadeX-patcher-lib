@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::structures::{Error, LauncherInfo, Mirror, Mirrors};
+use crate::structures::{Error, Mirror, Mirrors, NamedUrl, SoftwareVersion};
 use crate::functions::download_file;
 use crate::traits::AsString;
 
@@ -13,9 +13,6 @@ impl Mirrors {
     pub fn new() -> Mirrors {
       Mirrors {
         mirrors: Vec::new(),
-        instructions_hash: None,
-        version_number: None,
-        launcher_info: None,
       }
     }
   
@@ -55,27 +52,12 @@ impl Mirrors {
       Ok(())
     }
   
-    /**
-    Downloads release.json from the renegade-x server and adds it to the struct
-    */
-    pub async fn get_mirrors(&mut self, location: &str) -> Result<(), Error> {
-      let mut release_json = download_file(location.to_string(), Duration::from_secs(10)).await?;
-      let release_json_response = release_json.text()?;
-      let release_data = json::parse(&release_json_response)?;
-      self.launcher_info = Some(LauncherInfo {
-        version_name: release_data["launcher"]["version_name"].as_string(),
-        version_number: release_data["launcher"]["version_number"].as_usize().ok_or_else(|| Error::None(format!("mirrors.rs: Could not cast JSON version_number as a usize, input was {}", release_data["game"]["version_number"])))?,
-        patch_url: release_data["launcher"]["patch_url"].as_string(),
-        patch_hash: release_data["launcher"]["patch_hash"].as_string(),
-        prompted: false,
-      });
-      let mut mirror_vec = Vec::with_capacity(release_data["game"]["mirrors"].len());
-      release_data["game"]["mirrors"].members().for_each(|mirror| mirror_vec.push(mirror["url"].as_string()) );
-      for mirror in mirror_vec {
-        if let Ok(url) = mirror.parse::<url::Url>() {
+    pub async fn get_mirrors(&mut self, software: &SoftwareVersion) -> Result<(), Error> {
+      for mirror in &software.mirrors {
+        if let Ok(url) = mirror.url.parse::<url::Url>() {
           if let Ok(ip) = url.socket_addrs(|| None) {
             self.mirrors.push(Mirror{
-              address: Arc::new(format!("{}{}", &mirror, release_data["game"]["patch_path"].as_string())),
+              address: Arc::new(format!("{}{}", &mirror.url, software.version)),
               ip: ip.into(),
               speed: 1.0,
               ping: 1000.0,
@@ -85,9 +67,6 @@ impl Mirrors {
           }
         }
       }
-  
-      self.instructions_hash = Some(release_data["game"]["instructions_hash"].as_string());
-      self.version_number = Some(release_data["game"]["version_number"].as_u64().ok_or_else(|| Error::None(format!("mirrors.rs: Could not cast JSON version_number as a u64, input was {}", release_data["game"]["version_number"])))?.to_string());
       Ok(())
     }
   

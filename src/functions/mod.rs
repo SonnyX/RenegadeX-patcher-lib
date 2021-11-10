@@ -25,9 +25,6 @@ pub(crate) use remove_unversioned::remove_unversioned as remove_unversioned;
 mod read_dir;
 pub(crate) use read_dir::remove_unversioned as read_dir;
 
-mod get_game_state;
-pub(crate) use get_game_state::get_game_state as get_game_state;
-
 mod restore_backup;
 pub(crate) use restore_backup::restore_backup as restore_backup;
 
