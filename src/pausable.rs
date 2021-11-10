@@ -68,8 +68,7 @@ impl<B, A: Future<Output = B>> Future for Pausable<B, A> {
       FUTURE_CONTEXT.waker.register(wake.waker());
       return Poll::Pending;
     }
-    // I copied this code from Stack Overflow without reading the text that
-    // told me how to verify that this code uses `unsafe` correctly.
+    // I copied this code from Stack Overflow without reading the text that told me how to verify that this code uses `unsafe` correctly.
     // https://stackoverflow.com/questions/57369123/no-method-named-poll-found-for-a-type-that-implements-future
     if let Poll::Ready(b) = unsafe { self.as_mut().map_unchecked_mut(|s| &mut s.future) }.poll(wake) {
       Poll::Ready(b)

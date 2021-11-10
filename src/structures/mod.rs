@@ -15,8 +15,8 @@ pub(crate) use launcher_info::LauncherInfo as LauncherInfo;
 
 mod instruction_group;
 
-mod instructions;
-pub(crate) use instructions::Instruction as Instruction;
+mod instruction;
+pub(crate) use instruction::Instruction as Instruction;
 
 mod response;
 pub(crate) use response::Response as Response;
