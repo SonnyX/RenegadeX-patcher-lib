@@ -10,14 +10,10 @@ pub(crate) use mirror::Mirror as Mirror;
 mod mirrors;
 pub(crate) use mirrors::Mirrors as Mirrors;
 
-mod launcher_info;
-pub(crate) use launcher_info::LauncherInfo as LauncherInfo;
-
 mod instruction_group;
-pub(crate) use instruction_group::InstructionGroup as InstructionGroup;
 
-mod instructions;
-pub(crate) use instructions::Instruction as Instruction;
+mod instruction;
+pub(crate) use instruction::Instruction as Instruction;
 
 mod response;
 pub(crate) use response::Response as Response;
@@ -39,3 +35,18 @@ pub(crate) use buffered_writer::BufWriter as BufWriter;
 
 mod progress;
 pub(crate) use progress::Progress as Progress;
+
+mod action;
+pub(crate) use action::Action as Action;
+
+mod launcher_version;
+pub(crate) use launcher_version::LauncherVersion as LauncherVersion;
+
+mod named_url;
+pub(crate) use named_url::NamedUrl as NamedUrl;
+
+mod software_version;
+pub(crate) use software_version::SoftwareVersion as SoftwareVersion;
+
+mod version_information;
+pub(crate) use version_information::VersionInformation as VersionInformation;

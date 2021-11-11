@@ -1,5 +1,5 @@
 use std::time::{Duration, Instant};
-use crate::structures::{Error, Mirror};
+use crate::structures::{Error, Mirror, Response};
 use crate::functions::download_file;
 
 impl Mirror {
@@ -24,5 +24,10 @@ impl Mirror {
       error_count: self.error_count,
       enabled: self.enabled,
     })
+  }
+
+  pub(crate) async fn download_file(&self, url: String, timeout: Duration) -> Result<Response, Error> {
+    let url = format!("{}/{}", &self.address.clone().to_owned(), url);
+    download_file(url, timeout).await
   }
 }

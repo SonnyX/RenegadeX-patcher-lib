@@ -12,8 +12,8 @@ impl AsString for json::JsonValue {
       json::JsonValue::Short(ref value)  => value.to_string(),
       json::JsonValue::String(ref value) => value.to_string(),
       _                                  => {
-        error!("Expected a JSON String");
-        panic!("Expected a JSON String")
+        error!("Expected a JSON String, however got: {}", self.dump());
+        panic!("Expected a JSON String, however got: {}", self.dump())
       }
     }
   }

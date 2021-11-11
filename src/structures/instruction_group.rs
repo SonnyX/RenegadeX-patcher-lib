@@ -1,17 +1,3 @@
-use crate::structures::instructions::Instruction;
-
-pub(crate) struct InstructionGroup {
-	/// SHA256 hash of post-patching, None if the file is to be deleted
-	pub hash: Option<String>,
-	/// List of files that currently should match this SHA256
-	pub previous_hash_matches: Vec<String>,
-	/// List of files that should match this SHA256
-	pub current_hash_matches: Vec<String>,
-
-
-	pub instructions: Vec<Instruction>,
-}
-
 #[derive(Debug,Clone)]
 pub struct PatchEntry {
   /// Path to target file
