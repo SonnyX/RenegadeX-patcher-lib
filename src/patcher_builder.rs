@@ -1,38 +1,48 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use crate::NamedUrl;
 use crate::patcher::Patcher;
-use crate::structures::Error;
+use crate::structures::{Error, Mirrors};
 
 pub struct PatcherBuilder {
-  pub(crate) software_location: String,
-  pub(crate) version_url: String
+  pub(crate) software_location: Option<String>,
+  pub(crate) mirrors: Option<Vec<NamedUrl>>,
+  pub(crate) version: Option<String>,
+  pub(crate) instructions_hash: Option<String>,
 }
 
 impl PatcherBuilder {
     pub fn new() -> Self {
         Self {
-            software_location: "".to_string(),
-            version_url: "".to_string()
+            software_location: None,
+            mirrors: None,
+            version: None,
+            instructions_hash: None,
         }
     }
 
     pub fn set_software_location(&mut self, software_location: String) -> &mut Self {
-        self.software_location = software_location;
+        self.software_location = Some(software_location);
         self
     }
 
-    pub fn set_version_url(&mut self, version_url: String) -> &mut Self {
-        self.version_url = version_url;
+    
+    pub fn set_software_information(&mut self, mirrors: Vec<NamedUrl>, version: String, instructions_hash: String) -> &mut Self {
+        self.mirrors = Some(mirrors);
+        self.version = Some(version);
+        self.instructions_hash = Some(instructions_hash);
         self
     }
 
     pub fn build(self) -> Result<Patcher, Error> {
+
         Ok(Patcher {
             in_progress: Arc::new(AtomicBool::new(false)),
             join_handle: None,
-            software_location: self.software_location,
-            version_url: self.version_url
+            software_location: self.software_location.expect(""),
+            mirrors: Mirrors::new(self.mirrors.expect(""), self.version.expect("")),
+            instructions_hash: self.instructions_hash.expect("")
         })
     }
 }

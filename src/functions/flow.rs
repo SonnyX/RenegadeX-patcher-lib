@@ -1,15 +1,16 @@
-use crate::structures::Error;
-use super::retrieve_instructions;
+use crate::{pausable::PausableTrait, structures::{Error, Mirrors}};
+use crate::functions::{parse_instructions, retrieve_instructions};
 
-pub async fn flow() -> Result<(), Error> {
+pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash: String) -> Result<(), Error> {
+  mirrors.test_mirrors().await?;
 
-  // Get Instructions from mirror
-  //let instructions = retrieve_instructions(mirrors).await?;
-  // Group instructions into instruction_groups
-  //instructions.sort_by_cached_key(f);
-  // iterate through instruction_groups
-
+  // Download Instructions.json
+  let instructions = retrieve_instructions(instructions_hash, &mirrors).pausable().await?;
   
-  
+  // Parse Instructions.json
+  let instructions = parse_instructions(instructions)?;
+
+  println!("{:#?}", instructions);
+
   Ok(())
 }

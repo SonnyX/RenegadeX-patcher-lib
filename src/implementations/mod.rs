@@ -5,4 +5,3 @@ pub mod error;
 pub(crate) mod directory;
 pub(crate) mod buffered_writer;
 pub(crate) mod instruction;
-pub(crate) mod version_information;

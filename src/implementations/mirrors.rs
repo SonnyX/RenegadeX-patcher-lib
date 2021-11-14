@@ -1,8 +1,4 @@
-use std::time::Duration;
-
-use crate::structures::{Error, Mirror, Mirrors, NamedUrl, SoftwareVersion};
-use crate::functions::download_file;
-use crate::traits::AsString;
+use crate::structures::{Error, Mirror, Mirrors, NamedUrl};
 
 use log::{trace, error};
 use std::sync::{Arc, Mutex};
@@ -10,12 +6,27 @@ use std::sync::{Arc, Mutex};
 use futures::future::join_all;
 
 impl Mirrors {
-    pub fn new() -> Mirrors {
-      Mirrors {
-        mirrors: Vec::new(),
+  pub fn new(named_urls: Vec<NamedUrl>, version: String) -> Self {
+    let mut mirrors = Vec::new();
+    for mirror in &named_urls {
+      if let Ok(url) = mirror.url.parse::<url::Url>() {
+        if let Ok(ip) = url.socket_addrs(|| None) {
+          mirrors.push(Mirror{
+            address: Arc::new(format!("{}{}", &mirror.url, version)),
+            ip: ip.into(),
+            speed: 1.0,
+            ping: 1000.0,
+            error_count: Arc::new(Mutex::new(0)),
+            enabled: Arc::new(Mutex::new(false)),
+          });
+        }
       }
     }
-  
+    Self {
+      mirrors
+    }
+  }
+
     pub fn is_empty(&self) -> bool {
       self.mirrors.is_empty()
     }
@@ -52,25 +63,6 @@ impl Mirrors {
       Ok(())
     }
   
-    pub async fn get_mirrors(&mut self, software: &SoftwareVersion) -> Result<(), Error> {
-      for mirror in &software.mirrors {
-        if let Ok(url) = mirror.url.parse::<url::Url>() {
-          if let Ok(ip) = url.socket_addrs(|| None) {
-            self.mirrors.push(Mirror{
-              address: Arc::new(format!("{}{}", &mirror.url, software.version)),
-              ip: ip.into(),
-              speed: 1.0,
-              ping: 1000.0,
-              error_count: Arc::new(Mutex::new(0)),
-              enabled: Arc::new(Mutex::new(false)),
-            });
-          }
-        }
-      }
-      Ok(())
-    }
-  
-    
     pub fn get_mirror(&self) -> Result<Mirror, Error> {
       for i in 0.. {
         for mirror in self.mirrors.iter() {

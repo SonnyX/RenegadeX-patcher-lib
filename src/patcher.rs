@@ -1,46 +1,33 @@
 //Standard library
-use std::collections::BTreeMap;
-use std::fs::{OpenOptions,DirBuilder};
-use std::io::{Read, Write, Seek, SeekFrom};
-use std::iter::FromIterator;
-use std::ops::Deref;
-use std::panic;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::sync::atomic::AtomicBool;
 
-//External crates
-use rayon::prelude::*;
-use ini::Ini;
-use log::*;
-use download_async::Body;
-use futures::task::AtomicWaker;
-use futures::future::join_all;
 
+use crate::functions::flow;
 use crate::pausable::BackgroundService;
 use crate::pausable::PausableTrait;
-use crate::structures::{Error, Mirrors, VersionInformation};
+use crate::structures::{Error, Mirrors};
 
 pub struct Patcher {
   pub in_progress: Arc<AtomicBool>,
   pub(crate) join_handle: Option<tokio::task::JoinHandle<()>>,
   pub(crate) software_location: String,
-  pub(crate) version_url: String
+  pub(crate) mirrors: Mirrors,
+  pub(crate) instructions_hash: String,
 }
 
 impl Patcher {
-
-  pub async fn get_remote_version(&self) -> Result<VersionInformation, Error> {
-    VersionInformation::retrieve(&self.version_url).await
-  }
-
   pub async fn start_validation() {
 
   }
 
   pub async fn start_patching(&mut self) {
-    let join_handle = tokio::task::spawn(async {
-      tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+    let mut mirrors = self.mirrors.clone();
+    let software_location = self.software_location.clone();
+    let instructions_hash = self.instructions_hash.clone();
 
+    let join_handle = tokio::task::spawn(async move {
+      let result = flow(mirrors, software_location, instructions_hash).pausable().await;
     }.pausable());
   }
 

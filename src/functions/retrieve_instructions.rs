@@ -1,13 +1,12 @@
 use std::io::Write;
 use std::time::Duration;
 
-use crate::structures::{Error, Mirrors, SoftwareVersion};
-use crate::functions::download_file;
+use crate::structures::{Error, Mirrors};
 
 use log::warn;
 use sha2::{Sha256, Digest};
 
-pub(crate) async fn retrieve_instructions(software: &SoftwareVersion, mirrors: &Mirrors) -> Result<String, Error> {
+pub(crate) async fn retrieve_instructions(instructions_hash: String, mirrors: &Mirrors) -> Result<String, Error> {
   if mirrors.is_empty() {
     return Err(Error::NoMirrors());
   }
@@ -16,16 +15,14 @@ pub(crate) async fn retrieve_instructions(software: &SoftwareVersion, mirrors: &
   for retry in 0_usize..3_usize {
     let mirror = mirrors.get_mirror()?;
     let result : Result<(),Error> = {
-      let url = format!("{}/instructions.json", &mirror.address);
-
-      let mut text = download_file(url.clone(), Duration::from_secs(60)).await?;
+      let mut text = mirror.download_file(format!("instructions.json"), Duration::from_secs(60)).await?;
       let bytes = text.as_ref();
       // check instructions hash
       let mut sha256 = Sha256::new();
       sha256.write(&bytes)?;
       let hash = hex::encode_upper(sha256.finalize());
-      if &hash != &software.instructions_hash {
-        Err(Error::HashMismatch(url, hash, software.instructions_hash.clone()))
+      if &hash != &instructions_hash {
+        Err(Error::HashMismatch(format!("{}/instructions.json", mirror.address), hash, instructions_hash.clone()))
       } else {
         instructions = text.text()?;
         Ok(())

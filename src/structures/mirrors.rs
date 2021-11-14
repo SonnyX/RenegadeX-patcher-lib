@@ -1,6 +1,6 @@
 use crate::structures::Mirror;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Mirrors {
   pub mirrors: Vec<Mirror>,
 }
