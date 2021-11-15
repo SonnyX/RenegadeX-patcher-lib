@@ -14,6 +14,7 @@ pub struct Patcher {
   pub(crate) software_location: String,
   pub(crate) mirrors: Mirrors,
   pub(crate) instructions_hash: String,
+  //pub(crate) success_callback: dyn Fn(),
 }
 
 impl Patcher {

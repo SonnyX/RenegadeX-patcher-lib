@@ -1,8 +1,11 @@
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
+
 pub struct Progress {
-  current_action: String,
-  verified_files: (u64, u64),
-  downloaded_files: (u64, u64),
-  downloaded_bytes: (u64, u64),
-  patched_files: (u64,u64),
-  patched_bytes: (u64, u64),
+  pub(crate) current_action: Arc<Mutex<String>>,
+  pub(crate) verified_files: (AtomicU64, AtomicU64),
+  pub(crate) downloaded_files: (AtomicU64, AtomicU64),
+  pub(crate) downloaded_bytes: (AtomicU64, AtomicU64),
+  pub(crate) patched_files: (AtomicU64,AtomicU64),
+  pub(crate) patched_bytes: (AtomicU64, AtomicU64),
 }
