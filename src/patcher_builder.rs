@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use crate::NamedUrl;
+use crate::{NamedUrl, Progress};
 use crate::patcher::Patcher;
 use crate::structures::{Error, Mirrors};
 
@@ -32,6 +32,24 @@ impl PatcherBuilder {
         self.mirrors = Some(mirrors);
         self.version = Some(version);
         self.instructions_hash = Some(instructions_hash);
+        self
+    }
+
+    pub fn set_success_callback<F>(&mut self, func: F) -> &mut Self 
+        where F: Fn()
+    {
+        self
+    }
+
+    pub fn set_failure_callback<F>(&mut self, func: F) -> &mut Self 
+        where F: Fn(Error)
+    {
+        self
+    }
+
+    pub fn set_progress_callback<F>(&mut self, func: F) -> &mut Self 
+        where F: Fn(Progress)
+    {
         self
     }
 

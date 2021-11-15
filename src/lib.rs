@@ -26,3 +26,4 @@ pub use patcher::Patcher as Patcher;
 pub use patcher_builder::PatcherBuilder as PatcherBuilder;
 pub use structures::Error as Error;
 pub use structures::NamedUrl as NamedUrl;
+pub use structures::Progress as Progress;

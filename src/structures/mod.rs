@@ -34,7 +34,7 @@ mod buffered_writer;
 pub(crate) use buffered_writer::BufWriter as BufWriter;
 
 mod progress;
-pub(crate) use progress::Progress as Progress;
+pub use progress::Progress as Progress;
 
 mod action;
 pub(crate) use action::Action as Action;
