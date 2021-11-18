@@ -17,7 +17,7 @@ impl Mirrors {
             speed: 1.0,
             ping: 1000.0,
             error_count: Arc::new(Mutex::new(0)),
-            enabled: Arc::new(Mutex::new(false)),
+            enabled: Arc::new(Mutex::new(true)),
           });
         }
       }
@@ -89,7 +89,7 @@ impl Mirrors {
       for result in mirrors {
         match result {
           Ok(mirror) => self.mirrors.push(mirror),
-          Err(e) => error!("Testing mirror failed: {}", e)
+          Err(e) => error!("Testing mirror failed: {:?}", e)
         }
       }
       if self.mirrors.len() > 1 {

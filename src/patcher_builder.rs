@@ -10,6 +10,9 @@ pub struct PatcherBuilder {
   pub(crate) mirrors: Option<Vec<NamedUrl>>,
   pub(crate) version: Option<String>,
   pub(crate) instructions_hash: Option<String>,
+  pub(crate) success_callback: Option<Box<dyn FnOnce() + Send>>,
+  pub(crate) failure_callback: Option<Box<dyn FnOnce(Error) + Send>>,
+  pub(crate) progress_callback: Option<Box<dyn Fn(&Progress) + Send>>,
 }
 
 impl PatcherBuilder {
@@ -19,6 +22,9 @@ impl PatcherBuilder {
             mirrors: None,
             version: None,
             instructions_hash: None,
+            success_callback: None,
+            failure_callback: None,
+            progress_callback: None
         }
     }
 
@@ -35,21 +41,21 @@ impl PatcherBuilder {
         self
     }
 
-    pub fn set_success_callback<F>(&mut self, func: F) -> &mut Self 
-        where F: Fn()
+    pub fn set_success_callback(&mut self, func: Box<dyn FnOnce() + Send>) -> &mut Self 
     {
+        self.success_callback = Some(func);
         self
     }
 
-    pub fn set_failure_callback<F>(&mut self, func: F) -> &mut Self 
-        where F: Fn(Error)
+    pub fn set_failure_callback(&mut self, func: Box<dyn FnOnce(Error) + Send>) -> &mut Self 
     {
+        self.failure_callback = Some(func);
         self
     }
 
-    pub fn set_progress_callback<F>(&mut self, func: F) -> &mut Self 
-        where F: Fn(Progress)
+    pub fn set_progress_callback(&mut self, func: Box<dyn Fn(&Progress) + Send>) -> &mut Self 
     {
+        self.progress_callback = Some(func);
         self
     }
 
@@ -60,7 +66,10 @@ impl PatcherBuilder {
             join_handle: None,
             software_location: self.software_location.expect(""),
             mirrors: Mirrors::new(self.mirrors.expect(""), self.version.expect("")),
-            instructions_hash: self.instructions_hash.expect("")
+            instructions_hash: self.instructions_hash.expect(""),
+            success_callback: self.success_callback,
+            failure_callback: self.failure_callback,
+            progress_callback: self.progress_callback,
         })
     }
 }

@@ -6,6 +6,6 @@ pub struct Progress {
   pub(crate) verified_files: (AtomicU64, AtomicU64),
   pub(crate) downloaded_files: (AtomicU64, AtomicU64),
   pub(crate) downloaded_bytes: (AtomicU64, AtomicU64),
-  pub(crate) patched_files: (AtomicU64,AtomicU64),
+  pub(crate) patched_files: (AtomicU64, AtomicU64),
   pub(crate) patched_bytes: (AtomicU64, AtomicU64),
 }
