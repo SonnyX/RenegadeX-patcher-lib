@@ -4,7 +4,7 @@ use crate::functions::{get_hash, delete_file, restore_backup};
 use crate::structures::{Action, Error, Instruction};
 
 impl Instruction {
-    async fn determine_action(self: &Instruction) -> Result<Action, Error> {
+    pub async fn determine_action(self: &Instruction) -> Result<Action, Error> {
         let backup_path = format!("{}.bck", &self.path);
         let mut backup_hash = None;
         let path_exists = Path::new(&self.path).exists();
@@ -14,7 +14,7 @@ impl Instruction {
             let mut hash = None;
             // Update or download
             if path_exists {
-                hash = Some(get_hash(&self.path)?);
+                hash = Some(get_hash(&self.path).await?);
                 if newest_hash.eq(&hash.clone().unwrap()) {
                     // File is already newest file
                     if backup_exists {
@@ -25,7 +25,7 @@ impl Instruction {
             }
     
             if backup_exists {
-                backup_hash = Some(get_hash(&backup_path)?);
+                backup_hash = Some(get_hash(&backup_path).await?);
                 if backup_hash.clone().map(|backup_hash| newest_hash.eq(&backup_hash)).unwrap() {
                     // Restore backup file
                     restore_backup(&self.path).await;

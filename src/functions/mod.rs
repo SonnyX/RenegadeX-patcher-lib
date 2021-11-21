@@ -30,3 +30,6 @@ pub(crate) use restore_backup::restore_backup as restore_backup;
 
 mod flow;
 pub(crate) use flow::flow as flow;
+
+mod download_file_in_parallel;
+pub(crate) use download_file_in_parallel::download_file_in_parallel as download_file_in_parallel;

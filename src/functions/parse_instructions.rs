@@ -3,10 +3,10 @@ use crate::traits::AsString;
 use log::error;
 
 
-pub(crate) fn parse_instructions(instructions: String) -> Result<Vec<Instruction>, Error> {
+pub(crate) fn parse_instructions(instructions: Box<String>) -> Result<Vec<Instruction>, Error> {
     let instructions_data = match json::parse(&instructions) {
     Ok(result) => result,
-    Err(e) => return Err(Error::InvalidJson("instructions.json".to_string(), instructions))
+    Err(e) => return Err(Error::InvalidJson("instructions.json".to_string(), *instructions))
   };
   let mut instructions = Vec::with_capacity(instructions_data.len());
   instructions_data.into_inner().iter().for_each(|instruction| {

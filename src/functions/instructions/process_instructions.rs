@@ -1,7 +1,6 @@
 
 
-pub fn process_instructions(&self) {
-  self.instructions.par_iter().for_each(|instruction| {
+pub fn process_instruction(instruction: &instruction) {
     //lets start off by trying to open the file.
     match OpenOptions::new().read(true).open(&instruction.path) {
       Ok(_file) => {
@@ -49,7 +48,6 @@ pub fn process_instructions(&self) {
         }
       }
     };
-  });
 }
 
 fn add_file_to_hash_queue(instruction: Instruction) {

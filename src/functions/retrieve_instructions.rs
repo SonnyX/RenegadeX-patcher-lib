@@ -6,12 +6,12 @@ use crate::structures::{Error, Mirrors};
 use log::warn;
 use sha2::{Sha256, Digest};
 
-pub(crate) async fn retrieve_instructions(instructions_hash: String, mirrors: &Mirrors) -> Result<String, Error> {
+pub(crate) async fn retrieve_instructions(instructions_hash: String, mirrors: &Mirrors) -> Result<Box<String>, Error> {
   if mirrors.is_empty() {
     return Err(Error::NoMirrors());
   }
   // todo: rewrite to have a race to fetch instructions the fastest
-  let mut instructions : String = "".to_string();
+  let mut instructions : Box<String> = Box::new("".to_string());
   for retry in 0_usize..3_usize {
     let mirror = mirrors.get_mirror()?;
     let result : Result<(),Error> = {
@@ -24,7 +24,7 @@ pub(crate) async fn retrieve_instructions(instructions_hash: String, mirrors: &M
       if &hash != &instructions_hash {
         Err(Error::HashMismatch(format!("{}/instructions.json", mirror.address), hash, instructions_hash.clone()))
       } else {
-        instructions = text.text()?;
+        *instructions = text.text()?;
         Ok(())
       }
     };
