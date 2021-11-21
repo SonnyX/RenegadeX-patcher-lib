@@ -29,11 +29,15 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   progress_callback(&progress);
 
   let mut futures = vec!();
+  progress.set_instructions_amount(instructions.len().try_into().expect("Somehow we have more than 2^64 instructions, colour me impressed"));
+
   for instruction in instructions {
     let mirrors = mirrors.clone();
     let progress = progress.clone();
     futures.push(async move {
       let action = instruction.determine_action().await?;
+      progress.increment_processed_instructions();
+      
       match action {
         crate::structures::Action::DownloadFull => {
           download_file_in_parallel("full", instruction.full_vcdiff_hash.expect("Download full, but there's no full vcdiff hash"), mirrors, progress).await?;
