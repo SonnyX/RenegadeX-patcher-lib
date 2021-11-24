@@ -1,5 +1,3 @@
-#![feature(slice_group_by)]
-
 extern crate rayon;
 extern crate json;
 extern crate sha2;
