@@ -36,6 +36,19 @@ impl Progress {
         self.processed_instructions.0.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub(crate) fn add_download(&self, value: u64) {
+        self.downloaded_files.1.fetch_add(1, Ordering::Relaxed);
+        self.downloaded_bytes.1.fetch_add(value, Ordering::Relaxed);
+    }
+
+    pub(crate) fn increment_downloaded_bytes(&self, value: u64) {
+        self.downloaded_bytes.0.fetch_add(value, Ordering::Relaxed);
+    }
+
+    pub(crate) fn increment_completed_downloads(&self) {
+        self.downloaded_files.0.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub(crate) async fn call_every(&self, timespan: Duration) -> Result<(), Error> {
         Ok(())
     }

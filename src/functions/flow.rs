@@ -40,7 +40,8 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
       
       match action {
         crate::structures::Action::DownloadFull => {
-          download_file_in_parallel("full", instruction.full_vcdiff_hash.expect("Download full, but there's no full vcdiff hash"), mirrors, progress).await?;
+
+          download_file_in_parallel("full", instruction.full_vcdiff_hash.expect("Download full, but there's no full vcdiff hash"), instruction.full_vcdiff_size, mirrors, progress).await?;
 
           //apply_patch(instruction.path, instruction.full_vcdiff_hash, instruction.full_vcdiff_hash, false);
           //progress.increment_patched_done();
