@@ -1,7 +1,7 @@
 use std::{io::SeekFrom, time::Duration};
 
-use crate::structures::Response;
-use log::info;
+use crate::structures::{Response, Mirror};
+use futures::{stream::FuturesUnordered, StreamExt};
 use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt}, task::JoinHandle};
 
 use crate::{structures::{Error, Mirrors, Progress}, functions::get_hash};
@@ -31,32 +31,51 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, m
   f.read_exact(&mut completed_parts).await?;
   
   let download_parts : Vec<usize> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| i).collect();
-  let mut handlers : Vec<(usize, JoinHandle<Result<Response, Error>>)> = vec![];
+  let mut handlers : FuturesUnordered<JoinHandle<(usize, Result<Response, Error>)>> = FuturesUnordered::new();
   let url = format!("{}/{}", &folder, &url);
 
+  let handle = tokio::runtime::Handle::current();
   for part in download_parts {
-      let handle = tokio::runtime::Handle::current();
       let from = part*PART_SIZE;
       let mut to = part*PART_SIZE+PART_SIZE;
       if to > size {
         to = size;
       }
-      let future = handle.spawn(download_part(url.clone(), mirrors.clone(), from, to));
-      handlers.push((part, future));
+      let url = url.clone();
+      let mirror = mirrors.get_mirror()?;
+      let future = handle.spawn(async move {
+        (part, download_part(url, mirror, from, to).await)
+      });
+      handlers.push(future);
   }
-
-  for (part, handle) in handlers {
-    match handle.await {
-      Ok(_) => {},
-      Err(e) => todo!(),
-    };
+  loop {
+    match handlers.next().await {
+      Some(handle) => {
+        match handle {
+          Ok((part, Ok(response))) => {
+            println!("downloaded {}", part);
+          },
+          Ok((part, Err(e))) => {
+            eprintln!("download_part {} returned: {}", part, e);
+          },
+          Err(e) => {
+            eprintln!("join_error returned: {}", e);
+          },
+        };
+      },
+      None => {
+        println!("Done!");
+        break;
+      }
+    }
   }
   Ok(())
 }
 
-async fn download_part(url: String, mirrors: Mirrors, from: usize, to: usize) -> Result<Response, Error> {
+async fn download_part(url: String, mirror: Mirror, from: usize, to: usize) -> Result<Response, Error> {
   let mut downloader = download_async::Downloader::new();
-  downloader.use_uri(url.parse::<download_async::http::Uri>()?);
+  let uri = format!("{}/{}", mirror.address, url).parse::<download_async::http::Uri>()?;
+  downloader.use_uri(uri);
   let headers = downloader.headers().expect("Couldn't unwrap download_async headers option");
   headers.append("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")).parse().unwrap());
   headers.append("Range", format!("bytes={}-{}", from, to).parse().unwrap());
@@ -69,60 +88,60 @@ async fn download_part(url: String, mirrors: Mirrors, from: usize, to: usize) ->
   Ok(Response::new(result, buffer))
 }
 
-/*
-  ///
-  /// Downloads the file in parts
-  ///
-  ///
-  async fn download_file(&self, mirror: &Mirror, download_url: &str, download_entry: &DownloadEntry, first_attempt: bool) -> Result<(), Error> {
-    //set the size of the file, add a 32bit integer to the end of the file as a means of tracking progress. We won't download parts async.
-    
+mod myTests {
+  use crate::structures::*;
+  use crate::functions::*;
 
-    self.get_file(&mirror, f, &download_url, resume_part, part_size, &download_entry).await?;
-    //Let's make sure the downloaded file matches the Hash found in Instructions.json
-    let hash = get_hash(&download_entry.file_path)?;
-    if hash != download_entry.file_hash {
-      let mut state = self.state.lock().unexpected("");
-      state.download_size.0 -= download_entry.file_size as u64;
-      drop(state);
-      return Err(format!("File \"{}\"'s hash ({}) did not match with the one provided in Instructions.json ({})", &download_entry.file_path, &hash, &download_entry.file_hash).into());
+  use tokio::fs::create_dir;
+  use std::{cmp::Eq, collections::HashMap, hash::Hash};
+  pub trait AsString {
+    fn as_string(&self) -> String;
+  }
+  impl AsString for json::JsonValue {
+    fn as_string(&self) -> String {
+      match *self {
+        json::JsonValue::Short(ref value)  => value.to_string(),
+        json::JsonValue::String(ref value) => value.to_string(),
+        _ => {
+          panic!("Expected a JSON String, however got: {}", self.dump())
+        }
+      }
     }
-    Ok(())
   }
 
+  #[tokio::test]
+  pub async fn myTest() -> Result<(),Error> {
 
-  pub async fn get_download_file(unlocked_state: Arc<Mutex<Progress>>, mirror: &Mirror, f: std::fs::File, download_url: &str, resume_part: usize, part_size: usize, download_entry: &DownloadEntry ) -> Result<(), Error>  {
-  let mut writer = BufWriter::new(f, move | file, total_written | {
-    //When the buffer is being written to file, this closure gets executed
-    let parts = *total_written / part_size as u64;
-    file.seek(SeekFrom::End(-4)).unexpected("");
-    file.write_all(&(parts as u32).to_be_bytes()).unexpected("");
-    file.seek(SeekFrom::Start(*total_written)).unexpected("");
-  });
-  writer.seek(SeekFrom::Start((part_size * resume_part) as u64)).unexpected("");
+      let mut downloader = download_async::Downloader::new();
+      downloader.use_uri("https://static.ren-x.com/launcher_data/version/release.json".parse::<download_async::http::Uri>()?);
+      let headers = downloader.headers().expect("Couldn't unwrap download_async headers option");
+      headers.append("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")).parse().unwrap());
+      let mut buffer = vec![];
+      downloader.allow_http();
+      let response = downloader.download(download_async::Body::empty(), &mut buffer);
 
-  let url = download_url.parse::<download_async::http::Uri>().unexpected("");
-  let trunc_size = download_entry.file_size as u64;
+      let parts = tokio::time::timeout(std::time::Duration::from_secs(10), response).await??;
 
-  let mut req = download_async::http::Request::builder();
-  req = req.uri(url).header("User-Agent", "sonny-launcher/1.0");
-  if resume_part != 0 {
-    req = req.header("Range", format!("bytes={}-{}", (part_size * resume_part), download_entry.file_size));
-  };
-  let req = req.body(download_async::Body::empty()).unexpected("");
-  let ip = mirror.ip.clone();
+      let file = String::from_utf8(buffer)?;
+      let parsed_json = json::parse(&file)?;
+      let named_urls : Vec<crate::NamedUrl> = parsed_json["game"]["mirrors"].members().map(|json| crate::NamedUrl {
+          name: json["name"].as_string(),
+          url: json["url"].as_string(),
+      }).collect();
+      println!("{:#?}", &named_urls);
 
-  let mut progress = crate::progress::DownloadProgress::new(unlocked_state);
+      let mut mirrors = Mirrors::new(named_urls, parsed_json["game"]["patch_path"].as_string());
 
-  let result = download_async::download(req, &mut writer, false, &mut Some(&mut progress), Some(ip)).await;
+      let progress = crate::Progress::new();
+      mirrors.test_mirrors().await?;
 
-  if result.is_ok() {
-    let f = writer.into_inner()?;
-    f.sync_all()?;
-    f.set_len(trunc_size)?;
-    Ok(())
-  } else {
-    Err(format!("Unexpected response: found status code!").into())
+      let instructions = retrieve_instructions(parsed_json["game"]["instructions_hash"].as_string(), &mirrors).await?;
+      let mut instructions = parse_instructions(instructions)?;
+      instructions.sort_by(|a,b| a.full_vcdiff_size.cmp(&b.full_vcdiff_size));
+      let instruction = instructions.pop().ok_or(Error::None(format!("No instructions")))?;
+      println!("{:#?}", &instruction);
+      let _ = create_dir(format!("patcher")).await;
+      let file = download_file_in_parallel("full", instruction.newest_hash.ok_or(Error::None(format!("No newest_hash")))?, instruction.full_vcdiff_size, mirrors, progress).await?;
+      Ok(())
   }
 }
-*/
