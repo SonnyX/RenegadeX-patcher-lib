@@ -61,18 +61,18 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, m
             f.seek(SeekFrom::Start((size + part) as u64)).await?;
             f.write(&[1_u8]).await?;
             progress.increment_downloaded_bytes(response.as_ref().len() as u64);
-            println!("downloaded {}", part);
+            log::info!("downloaded {}", part);
           },
           Ok((part, Err(e))) => {
-            eprintln!("download_part {} returned: {}", part, e);
+            log::error!("download_part {} returned: {}", part, e);
           },
           Err(e) => {
-            eprintln!("handlers.next() returned: {}", e);
+            log::error!("handlers.next() returned: {}", e);
           },
         };
       },
       None => {
-        println!("Done!");
+        log::info!("Done!");
         break;
       }
     }

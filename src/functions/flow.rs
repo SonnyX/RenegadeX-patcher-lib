@@ -49,31 +49,31 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
       progress_callback(&progress);
     }
   });
-  //handle.spawn(future);
-  let _ = future.await;
-  /*loop {
+  handle.spawn(future);
+  //let _ = future.await;
+  loop {
     
     match futures.next().await {
       Some(handle) => {
         match handle {
           Ok(Ok(instruction)) => {
-            println!("downloaded {}", instruction.path);
+            log::info!("downloaded {}", instruction.path);
           },
           Ok(Err(e)) => {
-            eprintln!("futures.next() returned: {}", e);
+            log::error!("futures.next() returned: {}", e);
           },
           Err(e) => {
-            eprintln!("futures.next() returned: {}", e);
+            log::error!("futures.next() returned: {}", e);
           },
         };
       },
       None => {
-        println!("Done!");
+        log::info!("Done!");
         break;
       }
     }
     
-  }*/
+  }
   abort_handle.abort();
   //let futures = futures::future::try_join_all(futures).await;
   //let progress_update = futures::future::abortable(progress.call_every(Duration::from_millis(250)));
@@ -84,12 +84,13 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
 async fn process_instruction(instruction: Instruction, mirrors: Mirrors, progress: Progress) -> Result<Instruction, Error> {
   let action = instruction.determine_action().await?;
-  println!("Determined action {:?} for {}", &action, &instruction.path);
+  log::info!("Determined action {:?} for {}", &action, &instruction.path);
   progress.increment_processed_instructions();
   
   match action {
     crate::structures::Action::DownloadFull => {
       let file = instruction.newest_hash.clone().expect("Download full, but there's no full vcdiff hash");
+      log::info!("Downloading full for {}", &instruction.path);
       download_file_in_parallel("full", file, instruction.full_vcdiff_size, mirrors, progress).await?;
       
       //apply_patch(instruction.path, instruction.full_vcdiff_hash, instruction.full_vcdiff_hash, false);
@@ -98,6 +99,7 @@ async fn process_instruction(instruction: Instruction, mirrors: Mirrors, progres
     },
     crate::structures::Action::DownloadDelta => {
       let file = format!("{}_from_{}", &instruction.newest_hash.clone().expect("Download delta, but there's no newest hash"), &instruction.previous_hash.clone().expect("Download delta, but there's no previous hash"));
+      log::info!("Downloading delta for {}", &instruction.path);
       download_file_in_parallel("delta", file, instruction.delta_vcdiff_size, mirrors, progress).await?;
       
       //apply_patch(instruction.path, instruction.full_vcdiff_hash, instruction.full_vcdiff_hash, true);
