@@ -3,7 +3,6 @@ use log::info;
 use crate::structures::{Error, Progress};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 impl Progress {
     pub fn new() -> Self {
@@ -47,9 +46,5 @@ impl Progress {
 
     pub(crate) fn increment_completed_downloads(&self) {
         self.downloaded_files.0.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub(crate) async fn call_every(&self, timespan: Duration) -> Result<(), Error> {
-        Ok(())
     }
 }

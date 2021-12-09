@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures::{StreamExt};
 use futures::stream::FuturesUnordered;
 
@@ -29,21 +31,34 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   let mut futures : Box<FuturesUnordered<_>> = Box::new(FuturesUnordered::new());
   progress.set_instructions_amount(instructions.len().try_into().expect("Somehow we have more than 2^64 instructions, colour me impressed"));
+  let handle = tokio::runtime::Handle::current();
+
 
   for instruction in instructions {
     let mirrors = mirrors.clone();
     let progress = progress.clone();
-    futures.push(process_instruction(instruction, mirrors, progress));
+    futures.push(handle.spawn(process_instruction(instruction, mirrors, progress)));
   }
   progress.set_current_action("Validating, Downloading, Patching!".to_string())?;
   progress_callback(&progress);
 
+
+  let (future, abort_handle) = futures::future::abortable(async move {
+    loop {
+      tokio::time::sleep(Duration::from_millis(250)).await;
+      progress_callback(&progress);
+    }
+  });
+  handle.spawn(future);
   loop {
     match futures.next().await {
       Some(handle) => {
         match handle {
-          Ok(instruction) => {
+          Ok(Ok(instruction)) => {
             println!("downloaded {}", instruction.path);
+          },
+          Ok(Err(e)) => {
+            eprintln!("futures.next() returned: {}", e);
           },
           Err(e) => {
             eprintln!("futures.next() returned: {}", e);
@@ -56,6 +71,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
       }
     }
   }
+  abort_handle.abort();
   //let futures = futures::future::try_join_all(futures).await;
   //let progress_update = futures::future::abortable(progress.call_every(Duration::from_millis(250)));
 

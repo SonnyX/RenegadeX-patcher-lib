@@ -35,12 +35,14 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, m
   let url = format!("{}/{}", &folder, &url);
 
   let handle = tokio::runtime::Handle::current();
+  let mut download_amount = 0;
   for part in download_parts {
       let from = part*PART_SIZE;
       let mut to = part*PART_SIZE+PART_SIZE;
       if to > size {
         to = size;
       }
+      download_amount += to - from;
       let url = url.clone();
       let mirror = mirrors.get_mirror()?;
       let future = handle.spawn(async move {
@@ -48,6 +50,7 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, m
       });
       handlers.push(future);
   }
+  progress.add_download(download_amount as u64);
   loop {
     match handlers.next().await {
       Some(handle) => {
@@ -57,6 +60,7 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, m
             f.write_all(&mut response.as_ref()).await?;
             f.seek(SeekFrom::Start((size + part) as u64)).await?;
             f.write(&[1_u8]).await?;
+            progress.increment_downloaded_bytes(response.as_ref().len() as u64);
             println!("downloaded {}", part);
           },
           Ok((part, Err(e))) => {
