@@ -49,8 +49,10 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
       progress_callback(&progress);
     }
   });
-  handle.spawn(future);
-  loop {
+  //handle.spawn(future);
+  let _ = future.await;
+  /*loop {
+    
     match futures.next().await {
       Some(handle) => {
         match handle {
@@ -70,7 +72,8 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
         break;
       }
     }
-  }
+    
+  }*/
   abort_handle.abort();
   //let futures = futures::future::try_join_all(futures).await;
   //let progress_update = futures::future::abortable(progress.call_every(Duration::from_millis(250)));
