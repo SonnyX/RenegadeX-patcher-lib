@@ -3,7 +3,7 @@ use crate::structures::Response;
 impl Response {
   pub fn new(parts: download_async::http::response::Parts, body: Vec<u8>) -> Self {
     Self {
-      parts,
+      parts: Box::new(parts),
       body
     }
   }

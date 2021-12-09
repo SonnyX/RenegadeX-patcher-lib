@@ -2,7 +2,7 @@ use std::{io::SeekFrom, time::Duration};
 
 use crate::structures::{Response, Mirror};
 use futures::{stream::FuturesUnordered, StreamExt};
-use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt}, task::JoinHandle};
+use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt, AsyncWriteExt}, task::JoinHandle};
 
 use crate::{structures::{Error, Mirrors, Progress}, functions::get_hash};
 
@@ -53,6 +53,10 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, m
       Some(handle) => {
         match handle {
           Ok((part, Ok(response))) => {
+            f.seek(SeekFrom::Start((part*PART_SIZE) as u64)).await?;
+            f.write_all(&mut response.as_ref()).await?;
+            f.seek(SeekFrom::Start((size + part) as u64)).await?;
+            f.write(&[1_u8]).await?;
             println!("downloaded {}", part);
           },
           Ok((part, Err(e))) => {
