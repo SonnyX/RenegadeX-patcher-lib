@@ -37,6 +37,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   }
   progress.set_current_action("Validating, Downloading, Patching!".to_string())?;
   progress_callback(&progress);
+
   loop {
     match futures.next().await {
       Some(handle) => {
@@ -45,7 +46,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
             println!("downloaded {}", instruction.path);
           },
           Err(e) => {
-            eprintln!("join_error returned: {}", e);
+            eprintln!("futures.next() returned: {}", e);
           },
         };
       },

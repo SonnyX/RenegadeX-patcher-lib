@@ -63,7 +63,7 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, m
             eprintln!("download_part {} returned: {}", part, e);
           },
           Err(e) => {
-            eprintln!("join_error returned: {}", e);
+            eprintln!("handlers.next() returned: {}", e);
           },
         };
       },
