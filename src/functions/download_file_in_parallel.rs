@@ -31,7 +31,7 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, m
   f.read_exact(&mut completed_parts).await?;
   
   let download_parts : Vec<usize> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| i).collect();
-  let mut handlers : FuturesUnordered<JoinHandle<(usize, Result<Response, Error>)>> = FuturesUnordered::new();
+  let mut handlers : Box<FuturesUnordered<JoinHandle<(usize, Result<Response, Error>)>>> = Box::new(FuturesUnordered::new());
   let url = format!("{}/{}", &folder, &url);
 
   let handle = tokio::runtime::Handle::current();
@@ -92,12 +92,12 @@ async fn download_part(url: String, mirror: Mirror, from: usize, to: usize) -> R
   Ok(Response::new(result, buffer))
 }
 
-mod myTests {
+#[cfg(test)]
+mod my_tests {
   use crate::structures::*;
   use crate::functions::*;
-
   use tokio::fs::create_dir;
-  use std::{cmp::Eq, collections::HashMap, hash::Hash};
+
   pub trait AsString {
     fn as_string(&self) -> String;
   }
@@ -124,7 +124,7 @@ mod myTests {
       downloader.allow_http();
       let response = downloader.download(download_async::Body::empty(), &mut buffer);
 
-      let parts = tokio::time::timeout(std::time::Duration::from_secs(10), response).await??;
+      let _ = tokio::time::timeout(std::time::Duration::from_secs(10), response).await??;
 
       let file = String::from_utf8(buffer)?;
       let parsed_json = json::parse(&file)?;

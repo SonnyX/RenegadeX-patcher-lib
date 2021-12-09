@@ -23,7 +23,7 @@ mod remove_unversioned;
 pub(crate) use remove_unversioned::remove_unversioned as remove_unversioned;
 
 mod read_dir;
-pub(crate) use read_dir::remove_unversioned as read_dir;
+pub(crate) use read_dir::read_dir as read_dir;
 
 mod restore_backup;
 pub(crate) use restore_backup::restore_backup as restore_backup;

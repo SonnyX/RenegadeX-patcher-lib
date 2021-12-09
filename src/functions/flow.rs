@@ -1,7 +1,3 @@
-use std::time::Duration;
-
-use futures::future::join_all;
-
 use crate::{pausable::PausableTrait};
 use crate::structures::{Error, Mirrors, Progress};
 use crate::functions::{download_file_in_parallel, parse_instructions, retrieve_instructions};

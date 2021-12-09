@@ -41,7 +41,7 @@ pub(crate) async fn retrieve_instructions(instructions_hash: String, mirrors: &M
         _ => {}
       };
       warn!("Removing mirror: {:#?}", &mirror);
-      mirrors.remove(mirror)?;
+      mirrors.remove(mirror);
     }
   }
   return Ok(instructions);

@@ -2,9 +2,6 @@
 use std::sync::{Arc};
 use std::sync::atomic::AtomicBool;
 
-
-use log::info;
-
 use crate::functions::flow;
 use crate::pausable::BackgroundService;
 use crate::pausable::PausableTrait;
@@ -27,26 +24,26 @@ impl Patcher {
   }
 
   pub async fn start_patching(&mut self) {
-    let mut mirrors = self.mirrors.clone();
+    let mirrors = self.mirrors.clone();
     let software_location = self.software_location.clone();
     let instructions_hash = self.instructions_hash.clone();
     let success_callback = self.success_callback.take().expect("Can only start patching once");
     let failure_callback = self.failure_callback.take().expect("Can only start patching once");
     let progress_callback = self.progress_callback.take().expect("Can only start patching once");
 
-    let join_handle = tokio::task::spawn(async move {
+    self.join_handle = Some(tokio::task::spawn(async move {
       let result = flow(mirrors, software_location, instructions_hash, progress_callback).pausable().await;
       if result.is_ok() {
         success_callback();
       } else if let Err(e) = result {
         failure_callback(e);
       }
-    }.pausable());
+    }.pausable()));
   }
 
   pub async fn cancel(mut self) -> Result<(), ()> {
     crate::pausable::FUTURE_CONTEXT.stop()?;
-    if let Some(mut join_handle) = self.join_handle.take() {
+    if let Some(join_handle) = self.join_handle.take() {
       let _ = join_handle.await;
     }
     Ok(())

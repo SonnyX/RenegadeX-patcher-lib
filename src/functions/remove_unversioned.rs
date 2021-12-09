@@ -1,4 +1,4 @@
-use crate::structures::{Directory, Error, Instruction};
+use crate::{structures::{Directory, Error, Instruction}, functions::read_dir};
 use log::info;
 use std::path::PathBuf;
 
@@ -44,7 +44,7 @@ pub(crate) fn remove_unversioned(instructions: &Vec<Instruction>, renegadex_loca
       let file = file?;
       if file.file_type()?.is_dir() {
         if versioned_files.directory_exists(file.path().strip_prefix(&renegadex_path)?.to_owned()) {
-          crate::functions::read_dir::remove_unversioned(&file.path(), &versioned_files, &renegadex_path)?;
+          read_dir(&file.path(), &versioned_files, &renegadex_path)?;
         } else {
           info!("Remove directory: {:?}", &file.path());
         }

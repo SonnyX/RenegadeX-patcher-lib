@@ -1,4 +1,3 @@
-use crate::structures::PatchEntry;
 use crate::structures::Error;
 use std::fs::DirBuilder;
 use crate::functions::get_hash;
