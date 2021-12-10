@@ -6,26 +6,31 @@ use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt, AsyncWriteExt}, ta
 
 use crate::{structures::{Error, Mirrors, Progress}, functions::get_hash};
 
-pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, mirrors: Mirrors, progress: Progress) -> Result<(), Error> {
+pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, game_location: String, mirrors: Mirrors, progress: Progress) -> Result<(), Error> {
   const PART_SIZE : usize = 2u64.pow(20) as usize; //1.048.576 == 1 MB aprox
-  let file_location = format!("patcher/{}", &url);
+  let file_location = format!("{}/patcher/{}", game_location, &url);
+  log::info!("Opening: {}", &file_location);
   let mut f = OpenOptions::new().read(true).write(true).create(true).open(&file_location).await?;
   //set the size of the file, add a byte for each part to the end of the file as a means of tracking progress.
   let parts_amount : usize = size / PART_SIZE + if size % PART_SIZE > 0 {1} else {0};
   let file_size : usize = size + parts_amount;
+  log::info!("Getting metadata of {}", &file_location);
   let file_metadata = f.metadata().await?;
-  if (file_metadata.len() as usize) < file_size {
+  if (file_metadata.len() as usize) != file_size {
     if file_metadata.len() == (size as u64) {
       //If hash is correct, return.
       //Otherwise download again.
+      log::info!("Getting hash of {}", &file_location);
       let hash = get_hash(&file_location).await?;
       if hash == url {
         return Ok(());
       }
     }
+    log::info!("Setting size of {}", &file_location);
     f.set_len(file_size as u64).await?;
   }
   //We have set up the file
+  log::info!("Seeking to location of {}", &file_location);
   f.seek(SeekFrom::Start(size as u64)).await?;
   let mut completed_parts = vec![0; parts_amount];
   f.read_exact(&mut completed_parts).await?;
@@ -84,6 +89,7 @@ async fn download_part(url: String, mirror: Mirror, from: usize, to: usize) -> R
   let mut downloader = download_async::Downloader::new();
   let uri = format!("{}/{}", mirror.address, url).parse::<download_async::http::Uri>()?;
   downloader.use_uri(uri);
+  downloader.use_sockets(mirror.ip);
   let headers = downloader.headers().expect("Couldn't unwrap download_async headers option");
   headers.append("User-Agent", format!("RenX-Patcher ({})", env!("CARGO_PKG_VERSION")).parse().unwrap());
   headers.append("Range", format!("bytes={}-{}", from, to).parse().unwrap());
@@ -117,7 +123,7 @@ mod my_tests {
     }
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
   pub async fn myTest() -> Result<(),Error> {
 
       let mut downloader = download_async::Downloader::new();
@@ -149,7 +155,7 @@ mod my_tests {
       let instruction = instructions.pop().ok_or(Error::None(format!("No instructions")))?;
       println!("{:#?}", &instruction);
       let _ = create_dir(format!("patcher")).await;
-      let file = download_file_in_parallel("full", instruction.newest_hash.ok_or(Error::None(format!("No newest_hash")))?, instruction.full_vcdiff_size, mirrors, progress).await?;
+      let file = download_file_in_parallel("full", instruction.newest_hash.ok_or(Error::None(format!("No newest_hash")))?, instruction.full_vcdiff_size, format!("../"), mirrors, progress).await?;
       Ok(())
   }
 }
