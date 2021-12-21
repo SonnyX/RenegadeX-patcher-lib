@@ -24,7 +24,7 @@ impl Instruction {
           if backup_exists {
             delete_file(&backup_path).await;
           }
-          log::info!("Done determine_action: {}", &path);
+          log::info!("Done determine_action: Nothing {}", &path);
           return Ok(Action::Nothing);
         }
       }
@@ -34,7 +34,7 @@ impl Instruction {
         if backup_hash.clone().map(|backup_hash| newest_hash.eq(&backup_hash)).unwrap() {
           // Restore backup file
           restore_backup(&path).await;
-          log::info!("Done determine_action: {}", &path);
+          log::info!("Done determine_action: Nothing {}", &path);
           return Ok(Action::Nothing);
         }
       }
@@ -43,7 +43,7 @@ impl Instruction {
       if let Some(previous_hash) = self.previous_hash.clone() {
         if path_exists && previous_hash.eq(&hash.clone().unwrap()) {
           // Download delta
-          log::info!("Done determine_action: {}", &path);
+          log::info!("Done determine_action: Download {}", &path);
           return Ok(Action::Download(DownloadEntry {
             mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
             download_path: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
@@ -56,7 +56,7 @@ impl Instruction {
         } else if backup_exists && previous_hash.eq(&backup_hash.clone().unwrap()) {
           // Restore backup file
           restore_backup(&path).await;
-          log::info!("Done determine_action: {}", &path);
+          log::info!("Done determine_action: Download {}", &path);
           return Ok(Action::Download(DownloadEntry {
             mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
             download_path: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
@@ -69,7 +69,7 @@ impl Instruction {
       }
       
       // Download full
-      log::info!("Done determine_action: {}", &path);
+      log::info!("Done determine_action: Download {}", &path);
       return Ok(Action::Download(DownloadEntry {
         mirror_path: format!("full/{}", &newest_hash),
         download_path: self.full_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
@@ -87,7 +87,7 @@ impl Instruction {
         delete_file(&path).await;
       }
     }
-    log::info!("Done determine_action: {}", &path);
+    log::info!("Done determine_action: Nothing {}", &path);
     Ok(Action::Nothing)
   }
 }

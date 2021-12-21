@@ -10,8 +10,10 @@ pub(crate) async fn get_hash(file_path: &str) -> Result<String, Error> {
 	let mut hasher = Sha256::new();
 	let mut read : usize;
 	let mut buffer = [0u8; 4096];
-	while (read = file.read(&mut buffer[..]).await?, read != 0).1 {
+	while (read = file.read(&mut buffer).await?, read != 0).1 {
 		hasher.update(&buffer[..read]);
 	}
+	drop(file);
+	drop(buffer);
 	Ok(hex::encode_upper(hasher.finalize()))
 }
