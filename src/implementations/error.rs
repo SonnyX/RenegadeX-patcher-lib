@@ -48,6 +48,7 @@ impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for Error {
   fn from(error: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>) -> Self {
     use std::error::Error;
     let error = error.source().unwrap();
+    error!("std::sync::PoisonError<std::sync::MutexGuard<'_, T>>: {:#?}", error);
     Self::MutexPoisoned(error.to_string())
   }
 }
@@ -55,6 +56,7 @@ impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for Error {
 impl From<tokio::time::error::Elapsed> for Error {
   #[inline(always)]
   fn from(error: tokio::time::error::Elapsed) -> Self {
+    error!("std::time::error::Elapsed: {:#?}", error);
     Self::DownloadTimeout(error)
   }
 }
@@ -62,6 +64,7 @@ impl From<tokio::time::error::Elapsed> for Error {
 impl From<std::io::Error> for Error {
   #[inline(always)]
   fn from(error: std::io::Error) -> Self {
+    error!("std::io::Error: {:#?}", error);
     Self::IoError(error)
   }
 }
@@ -69,6 +72,7 @@ impl From<std::io::Error> for Error {
 impl From<std::string::FromUtf8Error> for Error {
   #[inline(always)]
   fn from(error: std::string::FromUtf8Error) -> Self {
+    error!("std::string::FromUtf8Error: {:#?}", error);
     Self::NotUtf8(error)
   }
 }
@@ -76,6 +80,7 @@ impl From<std::string::FromUtf8Error> for Error {
 impl From<Box<dyn std::error::Error + Sync + std::marker::Send>> for Error {
   #[inline(always)]
   fn from(error: Box<dyn std::error::Error + Sync + std::marker::Send>) -> Self {
+    error!("std::error::Error: {:#?}", error);
     Self::DownloadError(error)
   }
 }
@@ -83,6 +88,7 @@ impl From<Box<dyn std::error::Error + Sync + std::marker::Send>> for Error {
 impl From<json::Error> for Error {
   #[inline(always)]
   fn from(error: json::Error) -> Self {
+    error!("json::Error: {:#?}", error);
     Self::JsonError(error)
   }
 }
