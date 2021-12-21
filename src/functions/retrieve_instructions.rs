@@ -6,7 +6,7 @@ use crate::structures::{Error, Mirrors};
 use log::warn;
 use sha2::{Sha256, Digest};
 
-pub(crate) async fn retrieve_instructions(instructions_hash: String, mirrors: &Mirrors) -> Result<Box<String>, Error> {
+pub(crate) async fn retrieve_instructions(instructions_hash: &str, mirrors: &Mirrors) -> Result<Box<String>, Error> {
   if mirrors.is_empty() {
     return Err(Error::NoMirrors());
   }
@@ -22,7 +22,7 @@ pub(crate) async fn retrieve_instructions(instructions_hash: String, mirrors: &M
       sha256.write(&bytes)?;
       let hash = hex::encode_upper(sha256.finalize());
       if &hash != &instructions_hash {
-        Err(Error::HashMismatch(format!("{}/instructions.json", mirror.address), hash, instructions_hash.clone()))
+        Err(Error::HashMismatch(format!("{}/instructions.json", mirror.address), hash, instructions_hash.to_string()))
       } else {
         *instructions = text.text()?;
         Ok(())

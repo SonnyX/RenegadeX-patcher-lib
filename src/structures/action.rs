@@ -3,5 +3,6 @@
 pub enum Action {
     DownloadFull,
     DownloadDelta,
+    Delete,
     Nothing
 }

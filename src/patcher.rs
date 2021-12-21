@@ -32,7 +32,7 @@ impl Patcher {
     let progress_callback = self.progress_callback.take().expect("Can only start patching once");
 
     self.join_handle = Some(tokio::task::spawn(async move {
-      let result = flow(mirrors, software_location, instructions_hash, progress_callback).pausable().await;
+      let result = flow(mirrors, software_location, &instructions_hash, progress_callback).pausable().await;
       if result.is_ok() {
         success_callback();
       } else if let Err(e) = result {

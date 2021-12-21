@@ -41,3 +41,6 @@ pub(crate) use action::Action as Action;
 
 mod named_url;
 pub use named_url::NamedUrl as NamedUrl;
+
+mod file_part;
+pub use file_part::FilePart as FilePart;

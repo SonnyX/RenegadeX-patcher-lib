@@ -1,12 +1,11 @@
 use std::{io::SeekFrom, time::Duration};
 
-use crate::structures::{Response, Mirror};
-use futures::{stream::FuturesUnordered, StreamExt};
-use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt, AsyncWriteExt}, task::JoinHandle};
+use crate::structures::{Response, Mirror, FilePart};
+use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt}};
 
 use crate::{structures::{Error, Mirrors, Progress}, functions::get_hash};
 
-pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, game_location: String, mirrors: Mirrors, progress: Progress) -> Result<(), Error> {
+pub async fn download_file_in_parallel(folder: &str, url: &str, size: usize, game_location: &str, mirrors: Mirrors, progress: Progress) -> Result<(String, Vec<FilePart>), Error> {
   const PART_SIZE : usize = 2u64.pow(20) as usize; //1.048.576 == 1 MB aprox
   let file_location = format!("{}/patcher/{}", game_location, &url);
   log::info!("Opening: {}", &file_location);
@@ -23,7 +22,7 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, g
       log::info!("Getting hash of {}", &file_location);
       let hash = get_hash(&file_location).await?;
       if hash == url {
-        return Ok(());
+        return Ok((file_location, vec!()));
       }
     }
     log::info!("Setting size of {}", &file_location);
@@ -35,7 +34,9 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, g
   let mut completed_parts = vec![0; parts_amount];
   f.read_exact(&mut completed_parts).await?;
   
-  let download_parts : Vec<usize> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| i).collect();
+  let download_parts : Vec<FilePart> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| FilePart::new(file_location.clone(), i, i*PART_SIZE, (i*PART_SIZE).min(size))).collect();
+  return Ok((file_location, download_parts));
+/*
   let mut handlers : Box<FuturesUnordered<JoinHandle<(usize, Result<Response, Error>)>>> = Box::new(FuturesUnordered::new());
   let url = format!("{}/{}", &folder, &url);
 
@@ -83,6 +84,7 @@ pub async fn download_file_in_parallel(folder: &str, url: String, size: usize, g
     }
   }
   Ok(())
+  */
 }
 
 async fn download_part(url: String, mirror: Mirror, from: usize, to: usize) -> Result<Response, Error> {
@@ -149,13 +151,13 @@ mod my_tests {
       let progress = crate::Progress::new();
       mirrors.test_mirrors().await?;
 
-      let instructions = retrieve_instructions(parsed_json["game"]["instructions_hash"].as_string(), &mirrors).await?;
+      let instructions = retrieve_instructions(&parsed_json["game"]["instructions_hash"].as_string(), &mirrors).await?;
       let mut instructions = parse_instructions(instructions)?;
       instructions.sort_by(|a,b| a.full_vcdiff_size.cmp(&b.full_vcdiff_size));
       let instruction = instructions.pop().ok_or(Error::None(format!("No instructions")))?;
       println!("{:#?}", &instruction);
       let _ = create_dir(format!("patcher")).await;
-      let file = download_file_in_parallel("full", instruction.newest_hash.ok_or(Error::None(format!("No newest_hash")))?, instruction.full_vcdiff_size, format!("../"), mirrors, progress).await?;
+      let file = download_file_in_parallel("full", &instruction.newest_hash.ok_or(Error::None(format!("No newest_hash")))?, instruction.full_vcdiff_size, format!("../"), mirrors, progress).await?;
       Ok(())
   }
 }
