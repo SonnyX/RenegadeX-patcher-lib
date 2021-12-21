@@ -1,10 +1,10 @@
 use std::path::Path;
 
 use crate::functions::{delete_file, get_hash, restore_backup};
-use crate::structures::{Action, Error, Instruction};
+use crate::structures::{Action, DownloadEntry, Error, Instruction};
 
 impl Instruction {
-  pub async fn determine_action(self: &Instruction) -> Result<Action, Error> {
+  pub async fn determine_action(self: Instruction) -> Result<Action, Error> {
     let backup_path = format!("{}.bck", &self.path);
     let mut backup_hash = None;
     let path_exists = Path::new(&self.path).exists();
@@ -37,21 +37,39 @@ impl Instruction {
       if let Some(previous_hash) = self.previous_hash.clone() {
         if path_exists && previous_hash.eq(&hash.clone().unwrap()) {
           // Download delta
-          return Ok(Action::DownloadDelta);
-        } else {
-          // Check if there's a backup file, and restore it if it matches previous_hash
-          if backup_exists && previous_hash.eq(&backup_hash.clone().unwrap()) {
-            // Restore backup file
-            restore_backup(&self.path).await;
-            return Ok(Action::DownloadDelta);
-          }
-          // Download full
-          return Ok(Action::DownloadFull);
+          return Ok(Action::Download(DownloadEntry {
+            mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
+            download_path: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+            download_size: self.delta_vcdiff_size,
+            download_hash: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+            target_path: self.path,
+            target_hash: newest_hash,
+          }));
+        // Check if there's a backup file, and restore it if it matches previous_hash
+        } else if backup_exists && previous_hash.eq(&backup_hash.clone().unwrap()) {
+          // Restore backup file
+          restore_backup(&self.path).await;
+
+          return Ok(Action::Download(DownloadEntry {
+            mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
+            download_path: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+            download_size: self.delta_vcdiff_size,
+            download_hash: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+            target_path: self.path,
+            target_hash: newest_hash,
+          }));
         }
       }
       
       // Download full
-      return Ok(Action::DownloadFull);
+      return Ok(Action::Download(DownloadEntry {
+        mirror_path: format!("full/{}", &newest_hash),
+        download_path: self.full_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+        download_size: self.full_vcdiff_size,
+        download_hash: self.full_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+        target_path: self.path,
+        target_hash: newest_hash,
+      }));
     } else {
       // Delete file
       if backup_exists {

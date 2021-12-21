@@ -6,3 +6,4 @@ pub(crate) mod directory;
 pub(crate) mod buffered_writer;
 pub(crate) mod instruction;
 pub mod progress;
+pub(crate) mod file_part;

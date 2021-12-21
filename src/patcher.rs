@@ -18,6 +18,15 @@ pub struct Patcher {
   pub(crate) progress_callback: Option<Box<dyn Fn(&Progress) + Send>>,
 }
 
+async fn pausable_flow(mirrors: Mirrors, software_location: String, instructions_hash: String, success_callback: Box<dyn FnOnce() + Send>, failure_callback: Box<dyn FnOnce(Error) + Send>, progress_callback: Box<dyn Fn(&Progress) + Send>) -> () {
+  let result = flow(mirrors, software_location, &instructions_hash, progress_callback).pausable().await;
+  if result.is_ok() {
+    success_callback();
+  } else if let Err(e) = result {
+    failure_callback(e);
+  }
+}
+
 impl Patcher {
   pub async fn start_validation() {
 
@@ -31,14 +40,7 @@ impl Patcher {
     let failure_callback = self.failure_callback.take().expect("Can only start patching once");
     let progress_callback = self.progress_callback.take().expect("Can only start patching once");
 
-    self.join_handle = Some(tokio::task::spawn(async move {
-      let result = flow(mirrors, software_location, &instructions_hash, progress_callback).pausable().await;
-      if result.is_ok() {
-        success_callback();
-      } else if let Err(e) = result {
-        failure_callback(e);
-      }
-    }.pausable()));
+    self.join_handle = Some(tokio::spawn(pausable_flow(mirrors, software_location, instructions_hash, success_callback, failure_callback, progress_callback)));
   }
 
   pub async fn cancel(mut self) -> Result<(), ()> {

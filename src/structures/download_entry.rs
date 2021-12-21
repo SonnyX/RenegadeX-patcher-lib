@@ -1,9 +1,15 @@
-use crate::structures::patch_entry::PatchEntry;
-
 #[derive(Debug)]
 pub struct DownloadEntry {
-  pub file_path: String,
-  pub file_size: usize,
-  pub file_hash: String,
-  pub patch_entries: Vec<PatchEntry>,
+  /// The path relative to a mirror
+  pub mirror_path: String,
+  /// The path of the downloaded file
+  pub download_path: String,
+  /// The expected size of the downloaded file
+  pub download_size: usize,
+  /// The expected hash of the downloaded file
+  pub download_hash: String,
+  /// Path to target file
+  pub target_path: String,
+  /// The expected target hash after patching
+  pub target_hash: String
 }

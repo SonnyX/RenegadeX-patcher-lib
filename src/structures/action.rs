@@ -1,8 +1,8 @@
+use super::DownloadEntry;
 
 #[derive(Debug)]
 pub enum Action {
-    DownloadFull,
-    DownloadDelta,
-    Delete,
+    Download(DownloadEntry),
+    Delete(String),
     Nothing
 }
