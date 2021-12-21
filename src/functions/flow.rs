@@ -56,7 +56,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   //let parts = actions.
   loop {
     if let Some(action) = actions.next().await {
-      log::info!("action: {:#?}", action)
+      log::info!("action: {:#?}", action?)
     } else {
       break;
     }
