@@ -34,7 +34,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   progress.set_current_action("Validating, Downloading, Patching!".to_string())?;
   progress_callback(&progress);
   
-  let actions = futures::stream::iter(instructions).map(|instruction| instruction.determine_action()).buffer_unordered(10);
+  let actions = futures::stream::iter(instructions).map(|instruction| instruction.determine_action(game_location.clone())).buffer_unordered(10);
 
   // Increment the progress and filter out Action::Nothing
   
