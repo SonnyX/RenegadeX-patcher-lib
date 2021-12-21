@@ -91,7 +91,7 @@ impl From<Box<dyn std::error::Error + Sync + std::marker::Send>> for Error {
   #[track_caller]
   #[inline(always)]
   fn from(error: Box<dyn std::error::Error + Sync + std::marker::Send>) -> Self {
-    log_error(&error);
+    log_error(&error.source().unwrap());
     Self::DownloadError(error)
   }
 }
