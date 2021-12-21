@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use tokio::fs;
+
 use crate::functions::{delete_file, get_hash, restore_backup};
 use crate::structures::{Action, DownloadEntry, Error, Instruction};
 
@@ -8,8 +10,8 @@ impl Instruction {
     let path = format!("{}{}", &game_location, &self.path);
     let backup_path = format!("{}.bck", &path);
     let mut backup_hash = None;
-    let path_exists = Path::new(&path).exists();
-    let backup_exists = Path::new(&backup_path).exists();
+    let path_exists = fs::metadata(Path::new(&path)).await.is_ok();
+    let backup_exists = fs::metadata(Path::new(&backup_path)).await.is_ok();
     // Determine wether we have to delete files, update them, or add them.
     if let Some(newest_hash) = self.newest_hash.clone() {
       let mut hash = None;
