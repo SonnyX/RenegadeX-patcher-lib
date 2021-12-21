@@ -33,6 +33,16 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   progress.set_instructions_amount(instructions.len().try_into().expect("Somehow we have more than 2^64 instructions, colour me impressed"));
   progress.set_current_action("Validating, Downloading, Patching!".to_string())?;
   progress_callback(&progress);
+
+  let repeated_progress = progress.clone();
+  let (future, abort_handle) = futures::future::abortable(async move {
+    loop {
+      tokio::time::sleep(Duration::from_millis(250)).await;
+      progress_callback(&repeated_progress);
+    }
+  });
+  let handle = tokio::runtime::Handle::current();
+  handle.spawn(future);
   
   let actions = futures::stream::iter(instructions).map(|instruction| instruction.determine_action(game_location.clone())).buffer_unordered(10);
 
@@ -56,18 +66,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   // download_parts: num of mirrors * 2?
   // Write part to file: 1 after process_instruction is done
   // patch_file: 1 after process_instruction is done, same queue as write part to file
-  
-  
-  let (future, abort_handle) = futures::future::abortable(async move {
-    loop {
-      tokio::time::sleep(Duration::from_millis(250)).await;
-      progress_callback(&progress);
-    }
-  });
-  let handle = tokio::runtime::Handle::current();
-  handle.spawn(future);
-  
-  abort_handle.abort();
 
+  abort_handle.abort();
   Ok(())
 }
