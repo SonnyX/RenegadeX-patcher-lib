@@ -23,8 +23,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   progress_callback(&progress);
   
   // Parse Instructions.json
-  let mut instructions = parse_instructions(instructions)?;
-  instructions.sort_by(|a, b| a.full_vcdiff_size.cmp(&b.full_vcdiff_size));
+  let instructions = parse_instructions(instructions)?;
   
   progress.set_current_action("Processing instructions!".to_string())?;
   progress_callback(&progress);
