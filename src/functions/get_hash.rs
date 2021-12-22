@@ -1,5 +1,6 @@
 use tokio::fs::OpenOptions;
 use sha2::{Sha256, Digest};
+use tokio::io::AsyncWriteExt;
 use crate::structures::Error;
 use crate::tokio::io::AsyncReadExt;
 ///
@@ -13,6 +14,7 @@ pub(crate) async fn get_hash(file_path: &str) -> Result<String, Error> {
 	while (read = file.read(&mut buffer).await?, read != 0).1 {
 		hasher.update(&buffer[..read]);
 	}
+	file.flush().await?;
 	drop(file);
 	drop(buffer);
 	Ok(hex::encode_upper(hasher.finalize()))

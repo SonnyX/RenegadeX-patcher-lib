@@ -10,8 +10,8 @@ impl Instruction {
     let path = format!("{}{}", &game_location, &self.path);
     let backup_path = format!("{}.bck", &path);
     let mut backup_hash = None;
-    let path_exists = fs::metadata(Path::new(&path)).await.is_ok();
     log::info!("Started determine_action regarding: {}", &path);
+    let path_exists = fs::metadata(Path::new(&path)).await.is_ok();
     let backup_exists = fs::metadata(Path::new(&backup_path)).await.is_ok();
     // Determine wether we have to delete files, update them, or add them.
     if let Some(newest_hash) = self.newest_hash.clone() {

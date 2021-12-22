@@ -1,7 +1,7 @@
 use std::{io::SeekFrom};
 
 use crate::structures::{FilePart};
-use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt}};
+use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt, AsyncWriteExt}};
 
 use crate::{structures::{Error}, functions::get_hash};
 
@@ -27,12 +27,14 @@ pub async fn determine_parts_to_download(file_name: &str, file_hash: &str, size:
     }
     log::info!("Setting size of {}", &file_location);
     f.set_len(file_size as u64).await?;
+    f.flush().await?;
   }
   //We have set up the file
   log::info!("Seeking to location of {}", &file_location);
   f.seek(SeekFrom::Start(size as u64)).await?;
   let mut completed_parts = vec![0; parts_amount];
   f.read_exact(&mut completed_parts).await?;
+  f.flush().await?;
   
   let download_parts : Vec<FilePart> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| FilePart::new(file_location.clone(), i, i*PART_SIZE, (i*PART_SIZE).min(size))).collect();
   return Ok((file_location, download_parts));
