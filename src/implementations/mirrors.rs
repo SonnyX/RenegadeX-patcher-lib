@@ -45,6 +45,10 @@ impl Mirrors {
     pub fn disable(&self, entry: usize) {
       self.mirrors[entry].enabled.store(false, Ordering::Relaxed);
     }
+
+    pub async fn get_mirror_async(&self) -> Result<Mirror,Error> {
+      self.get_mirror()
+    }
   
     pub fn get_mirror(&self) -> Result<Mirror, Error> {
       for i in 0.. {

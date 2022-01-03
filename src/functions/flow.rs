@@ -1,4 +1,6 @@
+use futures::stream::SelectAll;
 use log::{info, error};
+use std::collections::HashMap;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -55,9 +57,10 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   .filter(|action_result| futures::future::ready(match action_result { Ok(Action::Nothing)  => false, _ => true }));
 
   let mut delete_file_tasks = vec![];
-
-  // 
-  //let parts = actions.
+  let mut downloads = SelectAll::new();
+  let mut tracker = HashMap::new();
+  
+  //let downloads = downloads.buffered(10);
   loop {
     if let Some(action) = actions.next().await {
       if let Ok(action) = action {
@@ -68,6 +71,8 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
               let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size, &game_location).await?;
               progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
               // add parts to be downloaded
+              downloads.push(futures::stream::iter(parts.clone()).map(|part| part.download(mirrors.clone())));
+              tracker.insert(download_location, (download_entry, parts));
 
               // when parts are downloaded, patch file
             },

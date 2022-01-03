@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct FilePart {
     pub file: String,
     pub part_num: usize,

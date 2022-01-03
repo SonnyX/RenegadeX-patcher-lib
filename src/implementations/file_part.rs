@@ -1,9 +1,10 @@
 use std::time::Duration;
 
-use crate::{structures::{FilePart, Response, Mirror}, Error};
+use crate::{structures::{FilePart, Response, Mirrors}, Error};
 
 impl FilePart {
-  async fn download(&self, mirror: Mirror) -> Result<Response, Error> {
+  pub(crate) async fn download(self, mirrors: Mirrors) -> Result<Response, Error> {
+    let mirror = mirrors.get_mirror_async().await?;
     let mut downloader = download_async::Downloader::new();
     let uri = format!("{}/{}", mirror.address, self.file).parse::<download_async::http::Uri>()?;
     downloader.use_uri(uri);
