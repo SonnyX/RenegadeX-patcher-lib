@@ -5,18 +5,18 @@ use tokio::{fs::OpenOptions, io::{AsyncSeekExt, AsyncReadExt, AsyncWriteExt}};
 
 use crate::{structures::{Error}, functions::get_hash};
 
-pub async fn determine_parts_to_download(file_name: &str, file_hash: &str, size: usize, game_location: &str) -> Result<(String, Vec<FilePart>), Error> {
-  const PART_SIZE : usize = 2u64.pow(20) as usize; //1.048.576 == 1 MB aprox
+pub async fn determine_parts_to_download(file_name: &str, file_hash: &str, size: u64, game_location: &str) -> Result<(String, Vec<FilePart>), Error> {
+  const PART_SIZE : u64 = 2u64.pow(20); //1.048.576 == 1 MB aprox
   let file_location = format!("{}/patcher/{}", game_location, &file_name);
   log::info!("Opening: {}", &file_location);
   let mut f = OpenOptions::new().read(true).write(true).create(true).open(&file_location).await?;
   //set the size of the file, add a byte for each part to the end of the file as a means of tracking progress.
-  let parts_amount : usize = size / PART_SIZE + if size % PART_SIZE > 0 {1} else {0};
-  let file_size : usize = size + parts_amount;
+  let parts_amount : u64 = size / PART_SIZE + if size % PART_SIZE > 0 {1} else {0};
+  let file_size : u64 = size + parts_amount;
   log::info!("Getting metadata of {}", &file_location);
   let file_metadata = f.metadata().await?;
-  if (file_metadata.len() as usize) != file_size {
-    if file_metadata.len() == (size as u64) {
+  if (file_metadata.len()) != file_size {
+    if file_metadata.len() == size {
       //If hash is correct, return.
       //Otherwise download again.
       log::info!("Getting hash of {}", &file_location);
@@ -32,11 +32,11 @@ pub async fn determine_parts_to_download(file_name: &str, file_hash: &str, size:
   //We have set up the file
   log::info!("Seeking to location of {}", &file_location);
   f.seek(SeekFrom::Start(size as u64)).await?;
-  let mut completed_parts = vec![0; parts_amount];
+  let mut completed_parts = vec![0; parts_amount as usize];
   f.read_exact(&mut completed_parts).await?;
   f.flush().await?;
   
-  let download_parts : Vec<FilePart> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| FilePart::new(file_location.clone(), i, i*PART_SIZE, (i*PART_SIZE).min(size))).collect();
+  let download_parts : Vec<FilePart> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| FilePart::new(file_location.clone(), i, ( i as u64 ) * PART_SIZE, ( (i as u64) * PART_SIZE).min(size))).collect();
   return Ok((file_location, download_parts));
 }
 

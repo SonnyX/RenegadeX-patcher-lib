@@ -22,7 +22,7 @@ impl Instruction {
         if newest_hash.eq(&hash.clone().unwrap()) {
           // File is already newest file
           if backup_exists {
-            delete_file(&backup_path).await;
+            return Ok(Action::Delete(backup_path));
           }
           log::info!("Done determine_action: Nothing {}", &path);
           return Ok(Action::Nothing);
@@ -81,10 +81,10 @@ impl Instruction {
     } else {
       // Delete file
       if backup_exists {
-        delete_file(&backup_path).await;
+        delete_file(backup_path).await;
       }
       if path_exists {
-        delete_file(&path).await;
+        return Ok(Action::Delete(path));
       }
     }
     log::info!("Done determine_action: Nothing {}", &path);

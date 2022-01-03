@@ -17,8 +17,8 @@ pub(crate) fn parse_instructions(instructions: Box<String>) -> Result<Vec<Instru
         newest_hash:          instruction["NewHash"].as_string_option(),
         full_vcdiff_hash:     instruction["CompressedHash"].as_string_option(),
         delta_vcdiff_hash:    instruction["DeltaHash"].as_string_option(),
-        full_vcdiff_size:     instruction["FullReplaceSize"].as_usize().ok_or_else(|| Error::None(format!("retrieve_instructions.rs: Could not cast JSON version_number as a usize, input was {}", instruction["FullReplaceSize"])))?,
-        delta_vcdiff_size:    instruction["DeltaSize"].as_usize().ok_or_else(|| Error::None(format!("retrieve_instructions.rs: Could not cast JSON version_number as a usize, input was {}", instruction["DeltaSize"])))?,
+        full_vcdiff_size:     instruction["FullReplaceSize"].as_u64().ok_or_else(|| Error::None(format!("retrieve_instructions.rs: Could not cast JSON version_number as a usize, input was {}", instruction["FullReplaceSize"])))?,
+        delta_vcdiff_size:    instruction["DeltaSize"].as_u64().ok_or_else(|| Error::None(format!("retrieve_instructions.rs: Could not cast JSON version_number as a usize, input was {}", instruction["DeltaSize"])))?,
         has_delta:            instruction["HasDelta"].as_bool().ok_or_else(|| Error::None(format!("retrieve_instructions.rs: Could not cast JSON version_number as a usize, input was {}", instruction["HasDelta"])))?
       });
       Ok(())

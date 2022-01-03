@@ -21,9 +21,6 @@ pub(crate) use response::Response as Response;
 mod error;
 pub use error::Error as Error;
 
-mod game_state;
-pub(crate) use game_state::GameState as GameState;
-
 mod directory;
 pub(crate) use directory::Directory as Directory;
 

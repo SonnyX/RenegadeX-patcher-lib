@@ -5,7 +5,7 @@ pub struct DownloadEntry {
   /// The path of the downloaded file
   pub download_path: String,
   /// The expected size of the downloaded file
-  pub download_size: usize,
+  pub download_size: u64,
   /// The expected hash of the downloaded file
   pub download_hash: String,
   /// Path to target file

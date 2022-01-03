@@ -12,9 +12,9 @@ pub(crate) struct Instruction {
   /// SHA256 hash of Delta vcdiff patch file
   pub delta_vcdiff_hash: Option<String>,
   /// Size of `Full` vcdiff patch file
-  pub full_vcdiff_size: usize,
+  pub full_vcdiff_size: u64,
   /// Size of `Delta` vcdiff patch file
-  pub delta_vcdiff_size: usize,
+  pub delta_vcdiff_size: u64,
   /// Does file have a Delta vcdiff patch file
   pub has_delta: bool
 }
