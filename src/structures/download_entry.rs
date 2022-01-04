@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DownloadEntry {
   /// The path relative to a mirror
   pub mirror_path: String,

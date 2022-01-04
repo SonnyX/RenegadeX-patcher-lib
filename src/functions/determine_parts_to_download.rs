@@ -36,7 +36,7 @@ pub async fn determine_parts_to_download(file_name: &str, file_hash: &str, size:
   f.read_exact(&mut completed_parts).await?;
   f.flush().await?;
   
-  let download_parts : Vec<FilePart> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| FilePart::new(file_location.clone(), i, ( i as u64 ) * PART_SIZE, ( (i as u64) * PART_SIZE).min(size))).collect();
+  let download_parts : Vec<FilePart> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| FilePart::new(file_location.clone(), size + (i as u64), ( i as u64 ) * PART_SIZE, ( ( (i + 1) as u64) * PART_SIZE).min(size))).collect();
   return Ok((file_location, download_parts));
 }
 

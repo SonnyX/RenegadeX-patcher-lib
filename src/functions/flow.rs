@@ -1,6 +1,9 @@
-use futures::stream::SelectAll;
+use futures::FutureExt;
 use log::{info, error};
+use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use std::collections::HashMap;
+use std::ops::Index;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -57,35 +60,74 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   .filter(|action_result| futures::future::ready(match action_result { Ok(Action::Nothing)  => false, _ => true }));
 
   let mut delete_file_tasks = vec![];
-  let mut downloads = SelectAll::new();
-  let mut tracker = HashMap::new();
+  let (sender, receiver) = futures::channel::mpsc::unbounded();
+  let mut tracker_lock = Mutex::new(HashMap::new());
   
   //let downloads = downloads.buffered(10);
-  loop {
-    if let Some(action) = actions.next().await {
-      if let Ok(action) = action {
-        info!("action: {:#?}", action);
-        
-        match action {
-            Action::Download(download_entry) => {
-              let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size, &game_location).await?;
-              progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
-              // add parts to be downloaded
-              downloads.push(futures::stream::iter(parts.clone()).map(|part| part.download(mirrors.clone())));
-              tracker.insert(download_location, (download_entry, parts));
-
-              // when parts are downloaded, patch file
-            },
-            Action::Delete(file) => delete_file_tasks.push(delete_file(file)),
-            Action::Nothing => {},
-        };
-      } else if let Err(e) = action {
-        error!("Processing file into action failed: {:#?}", e);
+  let actions_fut = async {
+    loop {
+      if let Some(action) = actions.next().await {
+        if let Ok(action) = action {
+          info!("action: {:#?}", action);
+          
+          match action {
+              Action::Download(download_entry) => {
+                let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size, &game_location).await?;
+                progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
+                // add parts to be downloaded
+                parts.iter().for_each(|part| sender.unbounded_send(part.clone().download(mirrors.clone(), download_entry.mirror_path.clone())).expect("Channel closed or something"));
+                let mut tracker = tracker_lock.lock().await;
+                tracker.insert(download_location, (download_entry, parts.iter().map(|part| part.part_byte).collect::<Vec<u64>>()));
+                drop(tracker);
+                // when parts are downloaded, patch file
+              },
+              Action::Delete(file) => delete_file_tasks.push(delete_file(file)),
+              Action::Nothing => {},
+          };
+        } else if let Err(e) = action {
+          error!("Processing file into action failed: {:#?}", e);
+        }
+      } else {
+        break;
       }
-    } else {
-      break;
     }
-  }
+    Ok::<(), Error>(())
+  };
+
+  let (patching_sender, patching_receiver) = futures::channel::mpsc::unbounded();
+
+  let downloads_fut = async {
+    let mut buffered_receiver = receiver.buffer_unordered(10);
+    loop {
+      if let Some(action) = buffered_receiver.next().await {
+        if let Ok((part, buffer)) = action {
+          info!("Part downloaded: {:#?}", part);
+          part.write_to_file(buffer).await?;
+          progress.increment_downloaded_bytes(part.to - part.from);
+
+          let mut tracker = tracker_lock.lock().await;
+          let (downloadEntry, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;
+          parts.remove(parts.binary_search(&part.part_byte).expect(""));
+          if parts.len() == 0 {
+            info!("Ey, can start patchin this file: {:#?}", &downloadEntry);
+            patching_sender.unbounded_send(downloadEntry.clone()).expect("Closed or sum shit");
+          }
+          drop(tracker);
+        } else if let Err(e) = action {
+          error!("Downloading FilePart failed: {:#?}", e);
+        }
+      } else {
+        break;
+      }
+    }
+    Ok::<(), Error>(())
+  };
+  let patching_fut = actions_fut.then(|validation_result| async { 
+    validation_result });
+  let (actions_result, downloads_result) = futures::join!(patching_fut, downloads_fut);
+  actions_result?;
+  downloads_result?;
+
 
 
 

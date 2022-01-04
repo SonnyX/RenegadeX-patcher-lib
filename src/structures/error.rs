@@ -22,6 +22,7 @@ pub enum Error {
 
 	// Download related errors:
 	HttpError(download_async::http::Error),
+	InvalidStatus(String),
 	DownloadTimeout(tokio::time::error::Elapsed),
 	DownloadError(Box<dyn std::error::Error + Sync + std::marker::Send>),
 	DownloadAsyncError(download_async::Error),
