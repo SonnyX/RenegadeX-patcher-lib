@@ -7,7 +7,7 @@ use crate::{structures::{Error}, functions::get_hash};
 
 pub async fn determine_parts_to_download(file_name: &str, file_hash: &str, size: u64, game_location: &str) -> Result<(String, Vec<FilePart>), Error> {
   const PART_SIZE : u64 = 2u64.pow(20); //1.048.576 == 1 MB aprox
-  let file_location = format!("{}/patcher/{}", game_location, &file_name);
+  let file_location = format!("{}patcher/{}", game_location, &file_name);
   log::info!("Opening: {}", &file_location);
   let mut f = OpenOptions::new().read(true).write(true).create(true).open(&file_location).await?;
   //set the size of the file, add a byte for each part to the end of the file as a means of tracking progress.
