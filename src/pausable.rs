@@ -64,12 +64,15 @@ impl<B, A: Future<Output = B>> Future for Pausable<B, A> {
   type Output = B;
 
   fn poll(mut self: Pin<&mut Self>, wake: &mut Context<'_>) -> Poll<Self::Output> {
+    if FUTURE_CONTEXT.cancelled.load(Ordering::Relaxed) {
+      drop(wake);
+      panic!("Cancelled futures!");
+    }
     if FUTURE_CONTEXT.paused.load(Ordering::Relaxed) {
       FUTURE_CONTEXT.waker.register(wake.waker());
       return Poll::Pending;
     }
-    // I copied this code from Stack Overflow without reading the text that told me how to verify that this code uses `unsafe` correctly.
-    // https://stackoverflow.com/questions/57369123/no-method-named-poll-found-for-a-type-that-implements-future
+
     if let Poll::Ready(b) = unsafe { self.as_mut().map_unchecked_mut(|s| &mut s.future) }.poll(wake) {
       Poll::Ready(b)
     } else {
