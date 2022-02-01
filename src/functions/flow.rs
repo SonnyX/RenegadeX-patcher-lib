@@ -13,7 +13,8 @@ use crate::functions::delete_file;
 use crate::functions::determine_parts_to_download;
 use crate::pausable::PausableTrait;
 use crate::structures::{Error, Mirrors, Progress, Action};
-use crate::functions::{parse_instructions, retrieve_instructions};
+use crate::functions::{apply_patch, parse_instructions, retrieve_instructions};
+
 
 pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash: &str, progress_callback: Box<dyn Fn(&Progress) + Send>) -> Result<(), Error> {
   let progress = Progress::new();
@@ -94,7 +95,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
     Ok::<(), Error>(())
   };
 
-  let (patching_sender, patching_receiver) = futures::channel::mpsc::unbounded();
+  let (patching_sender, mut patching_receiver) = futures::channel::mpsc::unbounded();
 
   let downloads_fut = async {
     let mut buffered_receiver = receiver.buffer_unordered(10);
@@ -117,18 +118,26 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
           error!("Downloading FilePart failed: {:#?}", e);
         }
       } else {
+        info!("Done downloading files!");
         break;
       }
     }
     Ok::<(), Error>(())
   };
-  let patching_fut = actions_fut.then(|validation_result| async { 
-    validation_result });
+
+  let patching_fut = actions_fut.then(|validation_result| async move { 
+    loop {
+      if let Some(patching_entry) = patching_receiver.next().await {
+        apply_patch(patching_entry.target_path, patching_entry.target_hash, patching_entry.download_path).await;
+      } else {
+        break;
+      }
+    }
+    validation_result
+  });
   let (actions_result, downloads_result) = futures::join!(patching_fut, downloads_fut);
   actions_result?;
   downloads_result?;
-
-
 
 
   // process_instruction: 1 at a time?
