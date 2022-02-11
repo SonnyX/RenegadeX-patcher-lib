@@ -164,9 +164,9 @@ dependencies = [
 
 [[package]]
 name = "download-async"
-version = "0.10.7"
+version = "0.10.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "293d2eb73963557436de22e02fe67e29d34afac6845625871d58f3b8e96daf24"
+checksum = "78d118a8f34dbc667312ad4189924a37d3ab44b911abf909f6a98f4b3f32882c"
 dependencies = [
  "async-compression",
  "async-trait",
