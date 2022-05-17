@@ -20,6 +20,15 @@ impl From<std::path::StripPrefixError> for Error {
   }
 }
 
+impl From<tokio::task::JoinError> for Error {
+  #[track_caller]
+  #[inline(always)]
+  fn from(error: tokio::task::JoinError) -> Self {
+    log_error(&error);
+    Self::JoinError(error)
+  }
+}
+
 impl From<download_async::http::uri::InvalidUri> for Error {
   #[track_caller]
   #[inline(always)]

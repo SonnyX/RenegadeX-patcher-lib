@@ -1,9 +1,7 @@
 use futures::FutureExt;
 use log::{info, error};
 use tokio::sync::Mutex;
-use tokio::sync::RwLock;
 use std::collections::HashMap;
-use std::ops::Index;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -62,7 +60,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   let mut delete_file_tasks = vec![];
   let (sender, receiver) = futures::channel::mpsc::unbounded();
-  let mut tracker_lock = Mutex::new(HashMap::new());
+  let tracker_lock = Mutex::new(HashMap::new());
   
   //let downloads = downloads.buffered(10);
   let actions_fut = async {

@@ -1,7 +1,10 @@
+use tokio::task::JoinError;
+
 #[derive(Debug)]
 pub enum Error {
 	InvalidUri(download_async::http::uri::InvalidUri),
 	FileLocked(),
+	JoinError(JoinError),
 	FutureWasPaused(),
 	FutureCancelled(),
 	HashMismatch(String, String, String),

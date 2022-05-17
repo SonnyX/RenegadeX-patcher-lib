@@ -2,7 +2,7 @@ use std::{time::Duration, io::SeekFrom};
 
 use download_async::http::StatusCode;
 use log::warn;
-use tokio::{fs::OpenOptions, io::{AsyncWriteExt, AsyncSeekExt}};
+use std::{fs::OpenOptions, io::{Write, Seek}};
 
 use crate::{structures::{FilePart, Mirrors}, Error};
 
@@ -30,12 +30,18 @@ impl FilePart {
   }
 
   pub(crate) async fn write_to_file(&self, buffer: Vec<u8>) -> Result<(), Error> {
-    let mut f = OpenOptions::new().read(true).write(true).create(true).open(&self.file).await?;
-    f.seek(SeekFrom::Start(self.from)).await?;
-    f.write_all(&buffer).await?;
-    f.seek(SeekFrom::Start(self.part_byte)).await?;
-    f.write(&[1]).await?;
-    f.shutdown().await?;
-    Ok(())
+    let from = self.from.clone();
+    let file = self.file.clone();
+    let part_byte = self.part_byte.clone();
+
+    tokio::task::spawn_blocking(move || {
+      let mut f = OpenOptions::new().read(true).write(true).create(true).open(&file)?;
+      f.seek(SeekFrom::Start(from))?;
+      f.write_all(&buffer)?;
+      f.seek(SeekFrom::Start(part_byte))?;
+      f.write(&[1])?;
+      f.flush()?;
+      Ok::<(), Error>(())
+    }).await?
   }
 }
