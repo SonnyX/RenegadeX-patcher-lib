@@ -47,4 +47,12 @@ impl Progress {
     pub(crate) fn increment_completed_downloads(&self) {
         self.downloaded_files.0.fetch_add(1, Ordering::Relaxed);
     }
+
+    pub(crate) fn add_patch(&self) {
+        self.patched_files.1.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn increment_completed_patches(&self) {
+        self.patched_files.0.fetch_add(1, Ordering::Relaxed);
+    }
 }

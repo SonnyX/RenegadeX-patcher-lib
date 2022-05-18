@@ -68,6 +68,13 @@ impl Instruction {
         }
       }
 
+      if path_exists {
+        delete_file(path.clone()).await?;
+      }
+      if backup_exists {
+        delete_file(backup_path.clone()).await?;
+      }
+
       let full_hash = self.full_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?;
       let download_path = format!("{}patcher/{}", &game_location, &full_hash);
       
@@ -83,7 +90,7 @@ impl Instruction {
     } else {
       // Delete file
       if backup_exists {
-        delete_file(backup_path).await;
+        delete_file(backup_path).await?;
       }
       if path_exists {
         return Ok(Action::Delete(path));

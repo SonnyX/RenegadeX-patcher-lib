@@ -2,6 +2,7 @@ use futures::FutureExt;
 use log::{info, error};
 use tokio::sync::Mutex;
 use std::collections::HashMap;
+use std::io::Write;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -77,7 +78,11 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
               Action::Download(download_entry) => {
                 let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size).await?;
                 if parts.len() == 0 {
+                  let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entry.download_path)?;
+                  f.set_len(download_entry.download_size)?;
+                  drop(f);
                   info!("Ey, can start patchin this file: {:#?}", &download_entry);
+                  progress.add_patch();
                   patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
                 } else {
                   progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
@@ -115,7 +120,12 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
           let (download_entry, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;
           parts.remove(parts.binary_search(&part.part_byte).expect(""));
           if parts.len() == 0 {
+            let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entry.download_path)?;
+            f.set_len(download_entry.download_size)?;
+            drop(f);
             info!("Ey, can start patchin this file: {:#?}", &download_entry);
+            progress.increment_completed_downloads();
+            progress.add_patch();
             patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
           }
           drop(tracker);
@@ -130,11 +140,13 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
     Ok::<(), Error>(())
   };
 
+  let progress_clone = progress.clone();
   let patching_fut = actions_fut.then(|validation_result| async move { 
     loop {
       if let Some(patching_entry) = patching_receiver.next().await {
         info!("Patching target file: {}, using the file {}", &patching_entry.target_path, &patching_entry.download_path);
-        apply_patch(patching_entry.target_path, patching_entry.target_hash, patching_entry.download_path).await;
+        apply_patch(patching_entry.target_path, patching_entry.target_hash, patching_entry.download_path).await?;
+        progress_clone.increment_completed_patches();
       } else {
         break;
       }
