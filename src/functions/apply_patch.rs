@@ -1,6 +1,7 @@
 use crate::structures::Error;
 use std::fs::DirBuilder;
 use crate::functions::get_hash;
+use log::info;
 
 ///
 /// Applies the vcdiff patch file to the target file.
@@ -20,13 +21,17 @@ pub(crate) async fn apply_patch(target_path: String, target_hash: String, delta_
   tokio::task::spawn_blocking(move || {
     if std::fs::File::open(&target_path_clone).is_ok() {
       // If the patch_entry is a delta
-
       let source_path = format!("{}.vcdiff_src", &target_path_clone);
+
+      info!("Patching delta target file: {}, from file {} using the file {}", &target_path_clone, &source_path, &delta_path);
+
       std::fs::rename(&target_path_clone, &source_path)?;
       xdelta::decode_file(Some(&source_path), &delta_path, &target_path_clone);
       std::fs::remove_file(&source_path)?;
     } else {
       // If the patch_entry is a full
+      info!("Patching full target file: {}, using the file {}", &target_path_clone, &delta_path);
+
       xdelta::decode_file(None, &delta_path, &target_path_clone);
     }
     Ok::<(), Error>(())

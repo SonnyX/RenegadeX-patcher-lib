@@ -107,11 +107,11 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
           progress.increment_downloaded_bytes(part.to - part.from);
 
           let mut tracker = tracker_lock.lock().await;
-          let (downloadEntry, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;
+          let (download_entry, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;
           parts.remove(parts.binary_search(&part.part_byte).expect(""));
           if parts.len() == 0 {
-            info!("Ey, can start patchin this file: {:#?}", &downloadEntry);
-            patching_sender.unbounded_send(downloadEntry.clone()).expect("Closed or sum shit");
+            info!("Ey, can start patchin this file: {:#?}", &download_entry);
+            patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
           }
           drop(tracker);
         } else if let Err(e) = action {
@@ -128,6 +128,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   let patching_fut = actions_fut.then(|validation_result| async move { 
     loop {
       if let Some(patching_entry) = patching_receiver.next().await {
+        info!("Patching target file: {}, using the file {}", &patching_entry.target_path, &patching_entry.download_path);
         apply_patch(patching_entry.target_path, patching_entry.target_hash, patching_entry.download_path).await;
       } else {
         break;
