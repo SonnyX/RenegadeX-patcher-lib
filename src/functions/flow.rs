@@ -56,7 +56,12 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   // Increment the progress and filter out Action::Nothing
   
   let mut actions = actions
-  .inspect_ok(|_| progress.increment_processed_instructions())
+  .inspect_ok(|action| {
+    progress.increment_processed_instructions();
+    if let Action::Download(_) = action {
+      progress.add_to_be_patched();
+    } 
+  })
   .filter(|action_result| futures::future::ready(match action_result { Ok(Action::Nothing)  => false, _ => true }));
 
   let mut delete_file_tasks = vec![];
@@ -76,7 +81,6 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
           info!("action: {:#?}", action);
           match action {
               Action::Download(download_entry) => {
-                progress.add_to_be_patched();
                 let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size).await?;
                 if parts.len() == 0 {
                   let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entry.download_path)?;
