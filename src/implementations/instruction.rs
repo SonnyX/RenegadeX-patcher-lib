@@ -38,31 +38,33 @@ impl Instruction {
       
       // File is not up to date
       if let Some(previous_hash) = self.previous_hash.clone() {
-        let delta_hash = self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have delta_vcdiff_hash, however there was None: {:#?}", self)))?;
-        let download_path = format!("{}patcher/{}", &game_location, &delta_hash);
+        if self.has_delta {
+          let delta_hash = self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have delta_vcdiff_hash, however there was None: {:#?}", self)))?;
+          let download_path = format!("{}patcher/{}", &game_location, &delta_hash);
 
-        if path_exists && previous_hash.eq(&hash.clone().unwrap()) {
-          // Download delta
-          return Ok(Action::Download(DownloadEntry {
-            mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
-            download_path: download_path,
-            download_size: self.delta_vcdiff_size,
-            download_hash: delta_hash,
-            target_path: path,
-            target_hash: newest_hash,
-          }));
-        // Check if there's a backup file, and restore it if it matches previous_hash
-        } else if backup_exists && previous_hash.eq(&backup_hash.clone().unwrap()) {
-          // Restore backup file
-          restore_backup(&path).await;
-          return Ok(Action::Download(DownloadEntry {
-            mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
-            download_path: download_path,
-            download_size: self.delta_vcdiff_size,
-            download_hash: delta_hash,
-            target_path: path,
-            target_hash: newest_hash,
-          }));
+          if path_exists && previous_hash.eq(&hash.clone().unwrap()) {
+            // Download delta
+            return Ok(Action::Download(DownloadEntry {
+              mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
+              download_path: download_path,
+              download_size: self.delta_vcdiff_size,
+              download_hash: delta_hash,
+              target_path: path,
+              target_hash: newest_hash,
+            }));
+          // Check if there's a backup file, and restore it if it matches previous_hash
+          } else if backup_exists && previous_hash.eq(&backup_hash.clone().unwrap()) {
+            // Restore backup file
+            restore_backup(&path).await;
+            return Ok(Action::Download(DownloadEntry {
+              mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
+              download_path: download_path,
+              download_size: self.delta_vcdiff_size,
+              download_hash: delta_hash,
+              target_path: path,
+              target_hash: newest_hash,
+            }));
+          }
         }
       }
 
