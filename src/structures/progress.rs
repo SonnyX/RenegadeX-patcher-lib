@@ -7,6 +7,6 @@ pub struct Progress {
   pub processed_instructions: Arc<(AtomicU64, AtomicU64)>,
   pub downloaded_files: Arc<(AtomicU64, AtomicU64)>,
   pub downloaded_bytes: Arc<(AtomicU64, AtomicU64)>,
-  pub patched_files: Arc<(AtomicU64, AtomicU64)>,
+  pub patched_files: Arc<(AtomicU64, AtomicU64, AtomicU64)>,
   pub patched_bytes: Arc<(AtomicU64, AtomicU64)>,
 }

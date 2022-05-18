@@ -11,7 +11,7 @@ impl Progress {
             processed_instructions: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             downloaded_files: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
             downloaded_bytes: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
-            patched_files: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
+            patched_files: Arc::new((AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0))),
             patched_bytes: Arc::new((AtomicU64::new(0), AtomicU64::new(0))),
         }
     }
@@ -48,7 +48,11 @@ impl Progress {
         self.downloaded_files.0.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub(crate) fn add_patch(&self) {
+    pub(crate) fn add_to_be_patched(&self) {
+        self.patched_files.2.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn add_ready_to_patch(&self) {
         self.patched_files.1.fetch_add(1, Ordering::Relaxed);
     }
 

@@ -76,13 +76,14 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
           info!("action: {:#?}", action);
           match action {
               Action::Download(download_entry) => {
+                progress.add_to_be_patched();
                 let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size).await?;
                 if parts.len() == 0 {
                   let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entry.download_path)?;
                   f.set_len(download_entry.download_size)?;
                   drop(f);
                   info!("Ey, can start patchin this file: {:#?}", &download_entry);
-                  progress.add_patch();
+                  progress.add_ready_to_patch();
                   patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
                 } else {
                   progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
@@ -125,7 +126,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
             drop(f);
             info!("Ey, can start patchin this file: {:#?}", &download_entry);
             progress.increment_completed_downloads();
-            progress.add_patch();
+            progress.add_ready_to_patch();
             patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
           }
           drop(tracker);
