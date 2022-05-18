@@ -62,6 +62,8 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   let (sender, receiver) = futures::channel::mpsc::unbounded();
   let tracker_lock = Mutex::new(HashMap::new());
   
+  let (patching_sender, mut patching_receiver) = futures::channel::mpsc::unbounded();
+
   //let downloads = downloads.buffered(10);
   let actions_fut = async {
     let patcher_folder = format!("{}patcher", &game_location);
@@ -74,13 +76,18 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
           match action {
               Action::Download(download_entry) => {
                 let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size).await?;
-                progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
-                // add parts to be downloaded
-                parts.iter().for_each(|part| sender.unbounded_send(part.clone().download(mirrors.clone(), download_entry.mirror_path.clone())).expect("Channel closed or something"));
-                let mut tracker = tracker_lock.lock().await;
-                tracker.insert(download_location, (download_entry, parts.iter().map(|part| part.part_byte).collect::<Vec<u64>>()));
-                drop(tracker);
-                // when parts are downloaded, patch file
+                if parts.len() == 0 {
+                  info!("Ey, can start patchin this file: {:#?}", &download_entry);
+                  patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
+                } else {
+                  progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
+                  // add parts to be downloaded
+                  parts.iter().for_each(|part| sender.unbounded_send(part.clone().download(mirrors.clone(), download_entry.mirror_path.clone())).expect("Channel closed or something"));
+                  let mut tracker = tracker_lock.lock().await;
+                  tracker.insert(download_location, (download_entry, parts.iter().map(|part| part.part_byte).collect::<Vec<u64>>()));
+                  drop(tracker);
+                  // when parts are downloaded, patch file
+                }
               },
               Action::Delete(file) => delete_file_tasks.push(delete_file(file)),
               Action::Nothing => {},
@@ -94,8 +101,6 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
     }
     Ok::<(), Error>(())
   };
-
-  let (patching_sender, mut patching_receiver) = futures::channel::mpsc::unbounded();
 
   let downloads_fut = async {
     let mut buffered_receiver = receiver.buffer_unordered(10);
