@@ -73,7 +73,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
           info!("action: {:#?}", action);
           match action {
               Action::Download(download_entry) => {
-                let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size, &game_location).await?;
+                let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size).await?;
                 progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
                 // add parts to be downloaded
                 parts.iter().for_each(|part| sender.unbounded_send(part.clone().download(mirrors.clone(), download_entry.mirror_path.clone())).expect("Channel closed or something"));

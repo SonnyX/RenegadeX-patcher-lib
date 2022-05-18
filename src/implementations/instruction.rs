@@ -38,13 +38,16 @@ impl Instruction {
       
       // File is not up to date
       if let Some(previous_hash) = self.previous_hash.clone() {
+        let delta_hash = self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have delta_vcdiff_hash, however there was None: {:#?}", self)))?;
+        let download_path = format!("{}patcher/{}", &game_location, &delta_hash);
+
         if path_exists && previous_hash.eq(&hash.clone().unwrap()) {
           // Download delta
           return Ok(Action::Download(DownloadEntry {
             mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
-            download_path: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+            download_path: download_path,
             download_size: self.delta_vcdiff_size,
-            download_hash: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+            download_hash: delta_hash,
             target_path: path,
             target_hash: newest_hash,
           }));
@@ -54,21 +57,24 @@ impl Instruction {
           restore_backup(&path).await;
           return Ok(Action::Download(DownloadEntry {
             mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
-            download_path: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+            download_path: download_path,
             download_size: self.delta_vcdiff_size,
-            download_hash: self.delta_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+            download_hash: delta_hash,
             target_path: path,
             target_hash: newest_hash,
           }));
         }
       }
+
+      let full_hash = self.full_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?;
+      let download_path = format!("{}patcher/{}", &game_location, &full_hash);
       
       // Download full
       return Ok(Action::Download(DownloadEntry {
         mirror_path: format!("full/{}", &newest_hash),
-        download_path: self.full_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+        download_path: download_path,
         download_size: self.full_vcdiff_size,
-        download_hash: self.full_vcdiff_hash.clone().ok_or(Error::None(format!("Expected instruction to have full_vcdiff_hash, however there was None: {:#?}", self)))?,
+        download_hash: full_hash,
         target_path: path,
         target_hash: newest_hash,
       }));
