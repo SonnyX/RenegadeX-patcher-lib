@@ -64,11 +64,13 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   
   //let downloads = downloads.buffered(10);
   let actions_fut = async {
+    let patcher_folder = format!("{}patcher", &game_location);
+    std::fs::DirBuilder::new().recursive(true).create(patcher_folder)?;
+
     loop {
       if let Some(action) = actions.next().await {
         if let Ok(action) = action {
           info!("action: {:#?}", action);
-          
           match action {
               Action::Download(download_entry) => {
                 let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size, &game_location).await?;
