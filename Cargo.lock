@@ -786,7 +786,7 @@ dependencies = [
 [[package]]
 name = "runas"
 version = "0.3.1"
-source = "git+https://github.com/SonnyX/rust-runas.git#92aed38ef37f212f4e70804a5625afdbd0b336ab"
+source = "git+https://github.com/SonnyX/rust-runas.git#9e980445be5fdb15c539ccf8de83ed77e2bc3597"
 dependencies = [
  "cc",
  "which",
