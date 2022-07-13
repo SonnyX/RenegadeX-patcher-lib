@@ -174,6 +174,7 @@ async fn verify_files(
     }
   }
   drop(sender);
+  drop(patching_sender);
   Ok::<(), Error>(())
 }
 
