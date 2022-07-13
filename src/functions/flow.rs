@@ -1,16 +1,23 @@
-use futures::FutureExt;
+use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
 use log::{info, error};
 use tokio::sync::Mutex;
 use std::collections::HashMap;
+use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
+
+use crate::Error;
 
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::FutureExt;
 
 use crate::functions::delete_file;
 use crate::functions::determine_parts_to_download;
 use crate::pausable::PausableTrait;
-use crate::structures::{Error, Mirrors, Progress, Action};
+use crate::structures::DownloadEntry;
+use crate::structures::FilePart;
+use crate::structures::{Mirrors, Progress, Action};
 use crate::functions::{apply_patch, parse_instructions, retrieve_instructions};
 
 
@@ -54,7 +61,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   // Increment the progress and filter out Action::Nothing
   
-  let mut actions = actions
+  let actions = actions
   .inspect_ok(|action| {
     progress.increment_processed_instructions();
     if let Action::Download(_) = action {
@@ -63,109 +70,15 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   })
   .filter(|action_result| futures::future::ready(match action_result { Ok(Action::Nothing)  => false, _ => true }));
 
-  let mut delete_file_tasks = vec![];
+  let delete_file_tasks : Vec<Pin<Box<dyn futures::Future<Output = Result<(), Error>> + Send + Sync>>> = vec![];
   let (sender, receiver) = futures::channel::mpsc::unbounded();
-  let tracker_lock : Mutex<HashMap<String, (Vec<crate::structures::DownloadEntry>, Vec<u64>)>> = Mutex::new(HashMap::new());
+  let tracker_lock : Arc<Mutex<HashMap<String, (Vec<crate::structures::DownloadEntry>, Vec<u64>)>>> = Arc::new(Mutex::new(HashMap::new()));
   
   let (patching_sender, mut patching_receiver) = futures::channel::mpsc::unbounded();
 
-  //let downloads = downloads.buffered(10);
-  let actions_fut = async {
-    let patcher_folder = format!("{}patcher", &game_location);
-    std::fs::DirBuilder::new().recursive(true).create(patcher_folder)?;
+  let actions_fut = verify_files(sender, game_location.clone(), actions, progress.clone(), patching_sender.clone(), tracker_lock.clone(), delete_file_tasks, mirrors);
 
-    loop {
-      if let Some(action) = actions.next().await {
-        if let Ok(action) = action {
-          info!("action: {:#?}", action);
-          match action {
-              Action::Download(download_entry) => {
-                let mut exists = false;
-                let mut tracker = tracker_lock.lock().await;
-                if let Some((download_entries, parts)) = tracker.get_mut(&download_entry.download_path) {
-                  if parts.len() == 0 {
-                    info!("Ey, can start patchin this file: {:#?}", &download_entry);
-                    progress.add_ready_to_patch();
-                    patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
-                  } else {
-                    download_entries.push(download_entry.clone());
-                  }
-                  exists = true;
-                }
-                drop(tracker);
-
-                if exists {
-                  continue;
-                }
-
-                let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size).await?;
-                if parts.len() == 0 {
-                  let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entry.download_path)?;
-                  f.set_len(download_entry.download_size)?;
-                  drop(f);
-                  info!("Ey, can start patchin this file: {:#?}", &download_entry);
-                  progress.add_ready_to_patch();
-                  patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
-                } else {
-                  progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
-                  // add parts to be downloaded
-                  parts.iter().for_each(|part| sender.unbounded_send(part.clone().download(mirrors.clone(), download_entry.mirror_path.clone())).expect("Channel closed or something"));
-                  let mut tracker = tracker_lock.lock().await;
-                  let mut vec = Vec::new();
-                  vec.push(download_entry);
-                  tracker.insert(download_location, (vec, parts.iter().map(|part| part.part_byte).collect::<Vec<u64>>()));
-                  drop(tracker);
-                  // when parts are downloaded, patch file
-                }
-              },
-              Action::Delete(file) => delete_file_tasks.push(delete_file(file)),
-              Action::Nothing => {},
-          };
-        } else if let Err(e) = action {
-          error!("Processing file into action failed: {:#?}", e);
-        }
-      } else {
-        break;
-      }
-    }
-    Ok::<(), Error>(())
-  };
-
-  let downloads_fut = async {
-    let mut buffered_receiver = receiver.buffer_unordered(10);
-    loop {
-      if let Some(action) = buffered_receiver.next().await {
-        if let Ok((part, buffer)) = action {
-          info!("Part downloaded: {:#?}", part);
-          part.write_to_file(buffer).await?;
-          progress.increment_downloaded_bytes(part.to - part.from);
-
-          let mut tracker = tracker_lock.lock().await;
-          let (download_entries, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;
-          parts.remove(parts.binary_search(&part.part_byte).expect("Could not find the part_byte"));
-          if parts.len() == 0 {
-            let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entries[0].download_path)?;
-            f.set_len(download_entries[0].download_size)?;
-            drop(f);
-            progress.increment_completed_downloads();
-
-            download_entries.iter().for_each(|download_entry| {
-              info!("Ey, can start patchin this file: {:#?}", &download_entry);
-              progress.add_ready_to_patch();
-              patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
-            });
-          }
-          drop(tracker);
-        } else if let Err(e) = action {
-          error!("Downloading FilePart failed: {:#?}", e);
-        }
-      } else {
-        info!("Done downloading files!");
-        break;
-      }
-    }
-    Ok::<(), Error>(())
-  };
+  let downloads_fut = download_files(receiver, progress.clone(), tracker_lock.clone(), patching_sender);
 
   let progress_clone = progress.clone();
   let patching_fut = actions_fut.then(|validation_result| async move { 
@@ -192,4 +105,116 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   abort_handle.abort();
   Ok(())
+}
+async fn verify_files(
+  sender: UnboundedSender<Pin<Box<dyn futures::Future<Output = Result<(FilePart, Vec<u8>), Error>> + Send>>>,
+  game_location: String,
+  mut actions: impl StreamExt<Item = Result<Action, Error>> + Unpin,
+  progress: Progress,
+  patching_sender: UnboundedSender<DownloadEntry>,
+  tracker_lock: Arc<Mutex<HashMap<String, (Vec<crate::structures::DownloadEntry>, Vec<u64>)>>>,
+  mut delete_file_tasks: Vec<Pin<Box<dyn futures::Future<Output = Result<(), Error>> + Send + Sync>>>,
+  mirrors: Mirrors
+) -> Result<(), Error> {
+  let patcher_folder = format!("{}patcher", &game_location);
+  std::fs::DirBuilder::new().recursive(true).create(patcher_folder)?;
+
+  loop {
+    if let Some(action) = actions.next().await {
+      if let Ok(action) = action {
+        info!("action: {:#?}", action);
+        match action {
+            Action::Download(download_entry) => {
+              let mut exists = false;
+              let mut tracker = tracker_lock.lock().await;
+              if let Some((download_entries, parts)) = tracker.get_mut(&download_entry.download_path) {
+                if parts.len() == 0 {
+                  info!("Ey, can start patchin this file: {:#?}", &download_entry);
+                  progress.add_ready_to_patch();
+                  patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
+                } else {
+                  download_entries.push(download_entry.clone());
+                }
+                exists = true;
+              }
+              drop(tracker);
+
+              if exists {
+                continue;
+              }
+
+              let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size).await?;
+              if parts.len() == 0 {
+                let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entry.download_path)?;
+                f.set_len(download_entry.download_size)?;
+                drop(f);
+                info!("Ey, can start patchin this file: {:#?}", &download_entry);
+                progress.add_ready_to_patch();
+                patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
+              } else {
+                progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
+                // add parts to be downloaded
+                parts.iter().for_each(|part| sender.unbounded_send(Box::pin(part.clone().download(mirrors.clone(), download_entry.mirror_path.clone()))).expect("Channel closed or something"));
+                let mut tracker = tracker_lock.lock().await;
+                let mut vec = Vec::new();
+                vec.push(download_entry);
+                tracker.insert(download_location, (vec, parts.iter().map(|part| part.part_byte).collect::<Vec<u64>>()));
+                drop(tracker);
+                // when parts are downloaded, patch file
+              }
+            },
+            Action::Delete(file) => delete_file_tasks.push(Box::pin(delete_file(file))),
+            Action::Nothing => {},
+        };
+      } else if let Err(e) = action {
+        error!("Processing file into action failed: {:#?}", e);
+      }
+    } else {
+      break;
+    }
+  }
+  drop(sender);
+  Ok::<(), Error>(())
+}
+
+async fn download_files(
+  receiver: UnboundedReceiver<Pin<Box<dyn futures::Future<Output = Result<(FilePart, Vec<u8>), Error>> + Send>>>,
+  progress: Progress,
+  tracker_lock: Arc<Mutex<HashMap<String, (Vec<crate::structures::DownloadEntry>, Vec<u64>)>>>,
+  patching_sender: UnboundedSender<DownloadEntry>,
+) -> Result<(), Error> {
+  let mut buffered_receiver = receiver.buffer_unordered(10);
+  loop {
+    if let Some(action) = buffered_receiver.next().await {
+      if let Ok((part, buffer)) = action {
+        info!("Part downloaded: {:#?}", part);
+        part.write_to_file(buffer).await?;
+        progress.increment_downloaded_bytes(part.to - part.from);
+
+        let mut tracker = tracker_lock.lock().await;
+        let (download_entries, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;
+        parts.remove(parts.binary_search(&part.part_byte).expect("Could not find the part_byte"));
+        if parts.len() == 0 {
+          let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entries[0].download_path)?;
+          f.set_len(download_entries[0].download_size)?;
+          drop(f);
+          progress.increment_completed_downloads();
+
+          download_entries.iter().for_each(|download_entry| {
+            info!("Ey, can start patchin this file: {:#?}", &download_entry);
+            progress.add_ready_to_patch();
+            patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
+          });
+        }
+        drop(tracker);
+      } else if let Err(e) = action {
+        error!("Downloading FilePart failed: {:#?}", e);
+      }
+    } else {
+      info!("Done downloading files!");
+      break;
+    }
+  }
+  drop(patching_sender);
+  Ok::<(), Error>(())
 }
