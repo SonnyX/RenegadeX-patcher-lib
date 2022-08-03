@@ -54,6 +54,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
     loop {
       let should_complete = should_complete_receiver.try_recv();
       if should_complete.is_err() || should_complete.ok().is_some() {
+        should_complete_receiver.close();
         break;
       }
       tokio::time::sleep(Duration::from_millis(250)).await;
