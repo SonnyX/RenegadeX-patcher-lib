@@ -59,6 +59,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
       tokio::time::sleep(Duration::from_millis(250)).await;
       progress_callback(&repeated_progress);
     }
+    info!("Done reporting download/patching progress!");
     progress_callback
   };
   let handle = tokio::runtime::Handle::current();
@@ -88,13 +89,14 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   let downloads_fut = download_files(receiver, progress.clone(), tracker_lock.clone(), patching_sender);
 
   let progress_clone = progress.clone();
-  let patching_fut = actions_fut.then(|validation_result| async move { 
+  let patching_fut = actions_fut.then(|validation_result| async move {
     loop {
       if let Some(patching_entry) = patching_receiver.next().await {
         info!("Patching target file: {}, using the file {}", &patching_entry.target_path, &patching_entry.download_path);
         apply_patch(patching_entry.target_path, patching_entry.target_hash, patching_entry.download_path).await?;
         progress_clone.increment_completed_patches();
       } else {
+        info!("Done patching files!");
         break;
       }
     }
@@ -186,6 +188,7 @@ async fn verify_files(
         error!("Processing file into action failed: {:#?}", e);
       }
     } else {
+      info!("Done verifying files!");
       break;
     }
   }
