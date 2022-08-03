@@ -188,7 +188,7 @@ async fn verify_files(
               } else {
                 progress.add_download(parts.iter().map(|part| part.to - part.from).sum());
                 // add parts to be downloaded
-                parts.iter().for_each(|part| sender.unbounded_send(Box::pin(part.clone().download(mirrors.clone(), download_entry.mirror_path.clone()))).expect("Channel closed or something"));
+                parts.iter().for_each(|part| sender.unbounded_send(Box::pin(part.clone().download(mirrors.clone(), download_entry.mirror_path.clone(), progress.clone()))).expect("Channel closed or something"));
                 let mut tracker = tracker_lock.lock().await;
                 let mut vec = Vec::new();
                 vec.push(download_entry);
@@ -225,7 +225,7 @@ async fn download_files(
       if let Ok((part, buffer)) = action {
         info!("Part downloaded: {:#?}", part);
         part.write_to_file(buffer).await?;
-        progress.increment_downloaded_bytes(part.to - part.from);
+        //progress.increment_downloaded_bytes(part.to - part.from);
 
         let mut tracker = tracker_lock.lock().await;
         let (download_entries, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;

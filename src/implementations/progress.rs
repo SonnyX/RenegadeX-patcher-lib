@@ -1,8 +1,24 @@
+use async_trait::async_trait;
 use log::info;
 
 use crate::structures::{Error, Progress};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+#[async_trait]
+impl download_async::Progress for Progress {
+    async fn set_file_size(&mut self, size:usize) -> () {
+    }
+
+    async fn add_to_progress(&mut self, amount:usize) -> () {
+      self.downloaded_bytes.0.fetch_add(amount as u64, Ordering::Relaxed);
+
+    }
+
+    async fn remove_from_progress(&mut self, bytes:usize) -> () {
+      self.downloaded_bytes.0.fetch_sub(bytes as u64, Ordering::Relaxed);
+    }
+}
 
 impl Progress {
     pub fn new() -> Self {
