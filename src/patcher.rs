@@ -34,8 +34,10 @@ impl Patcher {
     self.join_handle = Some(tokio::task::spawn(async move {
       let result = flow(mirrors, software_location, &instructions_hash, progress_callback).pausable().await;
       if result.is_ok() {
+        log::info!("Calling success_callback");
         success_callback();
       } else if let Err(e) = result {
+        log::info!("Calling failure_callback");
         failure_callback(e);
       }
     }));

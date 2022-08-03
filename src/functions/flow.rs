@@ -108,8 +108,12 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   downloads_result?;
   patching_result?;
+
+  info!("No errors for downloading or patching");
   
   let progress_callback = join_handle.await?;
+
+  info!("Progress join handle was awaited");
 
   // process_instruction: 1 at a time?
   // download_parts: num of mirrors * 2?
@@ -118,6 +122,8 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   progress.set_current_action("Cleaning up files".to_string())?;
   progress_callback(&progress);
+
+  info!("Set progress (Cleaning up files)");
 
   std::fs::remove_dir_all(format!("{}patcher", &game_location))?;
 
