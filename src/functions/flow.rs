@@ -48,14 +48,21 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   progress_callback(&progress);
 
   let repeated_progress = progress.clone();
-  let (future, abort_handle) = futures::future::abortable(async move {
+  let (tell_to_complete, mut should_complete_receiver) = futures::channel::oneshot::channel::<()>();
+
+  let future = async move {
     loop {
+      let should_complete = should_complete_receiver.try_recv();
+      if should_complete.is_ok() && should_complete.ok().is_none() {
+        break;
+      }
       tokio::time::sleep(Duration::from_millis(250)).await;
       progress_callback(&repeated_progress);
     }
-  });
+    progress_callback
+  };
   let handle = tokio::runtime::Handle::current();
-  handle.spawn(future);
+  let join_handle = handle.spawn(future);
   
   let actions = futures::stream::iter(instructions).map(|instruction| instruction.determine_action(game_location.clone())).buffer_unordered(10);
 
@@ -93,19 +100,28 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
     }
     validation_result
   });
-  let (actions_result, downloads_result) = futures::join!(patching_fut, downloads_fut);
-  actions_result?;
-  downloads_result?;
+  let (patching_result, downloads_result) = futures::join!(patching_fut, downloads_fut);
+  
+  tell_to_complete.send(()).expect("Couldn't tell the progress future to complete");
 
+  downloads_result?;
+  patching_result?;
+  
+  let progress_callback = join_handle.await?;
 
   // process_instruction: 1 at a time?
   // download_parts: num of mirrors * 2?
   // Write part to file: 1 after process_instruction is done
   // patch_file: 1 after process_instruction is done, same queue as write part to file
 
-  abort_handle.abort();
+  progress.set_current_action("Cleaning up files".to_string())?;
+  progress_callback(&progress);
+
+  std::fs::remove_dir_all(format!("{}patcher", &game_location))?;
+
   Ok(())
 }
+
 async fn verify_files(
   sender: UnboundedSender<Pin<Box<dyn futures::Future<Output = Result<(FilePart, Vec<u8>), Error>> + Send>>>,
   game_location: String,
