@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::Error;
@@ -48,13 +49,11 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   progress_callback(&progress);
 
   let repeated_progress = progress.clone();
-  let (tell_to_complete, mut should_complete_receiver) = futures::channel::oneshot::channel::<()>();
-
+  let report_progress = Arc::new(std::sync::atomic::AtomicBool::new(true));
+  let report_progress_clone = report_progress.clone();
   let future = async move {
     loop {
-      let should_complete = should_complete_receiver.try_recv();
-      if should_complete.is_err() || should_complete.ok().is_some() {
-        should_complete_receiver.close();
+      if report_progress_clone.load(Ordering::Relaxed) == false {
         break;
       }
       tokio::time::sleep(Duration::from_millis(250)).await;
@@ -110,7 +109,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   
   info!("Patching and downloading done, telling progress to quit");
 
-  let _ = tell_to_complete.send(());
+  let _ = report_progress.store(false, Ordering::Relaxed);
 
   info!("Told progress to quit");
 
