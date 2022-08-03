@@ -102,14 +102,24 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
     }
     validation_result
   });
+
+  info!("Gonna wait for patching and downloading to be done");
+
   let (patching_result, downloads_result) = futures::join!(patching_fut, downloads_fut);
   
-  tell_to_complete.send(()).expect("Couldn't tell the progress future to complete");
+  info!("Patching and downloading done, telling progress to quit");
+
+  let _ = tell_to_complete.send(());
+
+  info!("Told progress to quit");
 
   downloads_result?;
+
+  info!("No download errors");
+
   patching_result?;
 
-  info!("No errors for downloading or patching");
+  info!("No patching errors");
   
   let progress_callback = join_handle.await?;
 
