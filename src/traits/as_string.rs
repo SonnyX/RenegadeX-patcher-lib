@@ -1,4 +1,4 @@
-use log::error;
+use tracing::error;
 
 pub trait AsString {
   fn as_string(&self) -> String;

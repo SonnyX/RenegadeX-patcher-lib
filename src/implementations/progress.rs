@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use log::info;
+use tracing::info;
 
 use crate::structures::{Error, Progress};
 use std::sync::atomic::{AtomicU64, Ordering};

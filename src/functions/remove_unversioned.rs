@@ -1,5 +1,5 @@
 use crate::{structures::{Directory, Error, Instruction}, functions::read_dir};
-use log::info;
+use tracing::info;
 use std::path::PathBuf;
 
 /// This function converts the instructions array to a Directory structure

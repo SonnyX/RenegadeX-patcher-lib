@@ -1,5 +1,4 @@
 use crate::structures::Error;
-use log::{Record, Level};
 
 impl std::error::Error for Error { }
 
@@ -116,13 +115,5 @@ impl From<json::Error> for Error {
 
 #[track_caller]
 fn log_error(error: &(impl std::error::Error + ?Sized)) {
-  let location = Some(std::panic::Location::caller());
-  log::logger().log(&Record::builder()
-  .args(format_args!("{:?}", error))
-  .level(Level::Error)
-  .file(location.map(|a| a.file()))
-  .line(location.map(|a| a.line()))
-  .module_path(None)
-  .build());
-  log::logger().flush();
+  tracing::error!("{:?}", error);
 }

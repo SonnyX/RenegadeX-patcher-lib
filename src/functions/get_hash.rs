@@ -1,20 +1,17 @@
-use tokio::fs::OpenOptions;
+use std::{fs::OpenOptions, io::Read};
 use sha2::{Sha256, Digest};
-use tokio::io::AsyncWriteExt;
 use crate::structures::Error;
-use crate::tokio::io::AsyncReadExt;
 ///
 /// Opens a file and calculates it's SHA256 hash
 ///
-pub(crate) async fn get_hash(file_path: &str) -> Result<String, Error> {
-	let mut file = OpenOptions::new().read(true).open(file_path).await?;
+pub(crate) fn get_hash(file_path: &str) -> Result<String, Error> {
+	let mut file = OpenOptions::new().read(true).open(file_path)?;
 	let mut hasher = Sha256::new();
 	let mut read : usize;
 	let mut buffer = [0u8; 4096];
-	while (read = file.read(&mut buffer).await?, read != 0).1 {
+	while (read = file.read(&mut buffer)?, read != 0).1 {
 		hasher.update(&buffer[..read]);
 	}
-	file.flush().await?;
 	drop(file);
 	drop(buffer);
 	Ok(hex::encode_upper(hasher.finalize()))

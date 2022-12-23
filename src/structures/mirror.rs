@@ -3,7 +3,8 @@ use download_async::SocketAddrs;
 
 #[derive(Debug, Clone)]
 pub struct Mirror {
-  pub address: Arc<String>,
+  pub base: Arc<String>,
+  pub version: Arc<String>,
   pub speed: f64,
   pub ping: f64,
   pub error_count: Arc<AtomicU16>,

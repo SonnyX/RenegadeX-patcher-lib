@@ -3,9 +3,10 @@ use std::time::Duration;
 
 use crate::structures::{Error, Mirrors};
 
-use log::warn;
+use tracing::{warn, instrument};
 use sha2::{Sha256, Digest};
 
+#[instrument]
 pub(crate) async fn retrieve_instructions(instructions_hash: &str, mirrors: &Mirrors) -> Result<Box<String>, Error> {
   if mirrors.is_empty() {
     return Err(Error::NoMirrors());
@@ -15,14 +16,14 @@ pub(crate) async fn retrieve_instructions(instructions_hash: &str, mirrors: &Mir
   for retry in 0_usize..3_usize {
     let mirror = mirrors.get_mirror()?;
     let result : Result<(),Error> = {
-      let mut text = mirror.download_file(format!("instructions.json"), Duration::from_secs(60)).await?;
+      let mut text = mirror.download_patchfile("instructions.json", Duration::from_secs(60)).await?;
       let bytes = text.as_ref();
       // check instructions hash
       let mut sha256 = Sha256::new();
       sha256.write(&bytes)?;
       let hash = hex::encode_upper(sha256.finalize());
       if &hash != &instructions_hash {
-        Err(Error::HashMismatch(format!("{}/instructions.json", mirror.address), hash, instructions_hash.to_string()))
+        Err(Error::HashMismatch(format!("{}/{}/instructions.json", mirror.base, mirror.version), hash, instructions_hash.to_string()))
       } else {
         *instructions = text.text()?;
         Ok(())

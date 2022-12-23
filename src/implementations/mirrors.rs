@@ -1,6 +1,6 @@
 use crate::structures::{Error, Mirror, Mirrors, NamedUrl};
 
-use log::{trace, error};
+use tracing::{trace, error};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicU16, Ordering}};
 
 use futures::future::join_all;
@@ -12,7 +12,8 @@ impl Mirrors {
       if let Ok(url) = mirror.url.parse::<url::Url>() {
         if let Ok(ip) = url.socket_addrs(|| None) {
           mirrors.push(Mirror{
-            address: Arc::new(format!("{}{}", &mirror.url, version)),
+            base: Arc::new(mirror.url.to_string()),
+            version: Arc::new(version.to_string()),
             ip: ip.into(),
             speed: 1.0,
             ping: 1000.0,
@@ -53,8 +54,8 @@ impl Mirrors {
     pub fn get_mirror(&self) -> Result<Mirror, Error> {
       for i in 0.. {
         for mirror in self.mirrors.iter() {
-          if mirror.enabled.load(Ordering::Relaxed) && Arc::strong_count(&mirror.address) == i {
-            trace!("i: {}, mirror: {}", i, &mirror.address);
+          if mirror.enabled.load(Ordering::Relaxed) && Arc::strong_count(&mirror.base) == i {
+            trace!("i: {}, mirror: {}", i, &mirror.base);
             return Ok(mirror.clone());
           }
         }

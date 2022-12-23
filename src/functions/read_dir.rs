@@ -1,5 +1,5 @@
 use crate::structures::{Directory, Error};
-use log::info;
+use tracing::info;
 
 /// This function iterates through `dir` and removes any files that aren't in `versioned_files`
 pub fn read_dir(

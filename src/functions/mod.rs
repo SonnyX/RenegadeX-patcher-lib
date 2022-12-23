@@ -13,9 +13,6 @@ pub(crate) use parse_instructions::parse_instructions as parse_instructions;
 mod convert_bytes;
 pub(crate) use convert_bytes::convert as convert;
 
-mod download;
-pub(crate) use download::download_file as download_file;
-
 mod get_hash;
 pub(crate) use get_hash::get_hash as get_hash;
 

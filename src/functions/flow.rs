@@ -1,5 +1,6 @@
 use futures::channel::mpsc::{UnboundedSender, UnboundedReceiver};
-use log::{info, error};
+use tracing::{Instrument, instrument};
+use tracing::{info, error};
 use tokio::sync::Mutex;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -56,24 +57,25 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
       if report_progress_clone.load(Ordering::Relaxed) == false {
         break;
       }
-      tokio::time::sleep(Duration::from_millis(250)).await;
+      tokio::time::sleep(Duration::from_millis(250)).instrument(tracing::info_span!("Progress callback sleep")).await;
       progress_callback(&repeated_progress);
     }
     info!("Done reporting download/patching progress!");
     progress_callback
-  };
+  }.instrument(tracing::info_span!("Progress callback loop"));
   let handle = tokio::runtime::Handle::current();
-  let join_handle = handle.spawn(future);
-  
-  let actions = futures::stream::iter(instructions).map(|instruction| instruction.determine_action(game_location.clone())).buffer_unordered(10);
+  let progress_handle = tokio::task::Builder::new().name("Progress loop").spawn_on(future, &handle)?.instrument(tracing::info_span!("Progress callback loop"));
+  let game_location_clone = game_location.clone();
+  let actions = futures::stream::iter(instructions).map(move |instruction| instruction.determine_action(game_location_clone.clone())).buffer_unordered(1);
 
   // Increment the progress and filter out Action::Nothing
-  
+  let progress_clone = progress.clone();
+
   let actions = actions
-  .inspect_ok(|action| {
-    progress.increment_processed_instructions();
+  .inspect_ok(move |action| {
+    progress_clone.increment_processed_instructions();
     if let Action::Download(_) = action {
-      progress.add_to_be_patched();
+      progress_clone.add_to_be_patched();
     } 
   })
   .filter(|action_result| futures::future::ready(match action_result { Ok(Action::Nothing)  => false, _ => true }));
@@ -85,11 +87,12 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   let (patching_sender, mut patching_receiver) = futures::channel::mpsc::unbounded();
 
   let actions_fut = verify_files(sender, game_location.clone(), actions, progress.clone(), patching_sender.clone(), tracker_lock.clone(), delete_file_tasks, mirrors);
+  let actions_handle = tokio::task::Builder::new().name("Verification loop").spawn_on(actions_fut, &handle)?;
 
-  let downloads_fut = download_files(receiver, progress.clone(), tracker_lock.clone(), patching_sender);
+  let downloads_fut = download_files(receiver, progress.clone(), tracker_lock.clone(), patching_sender).instrument(tracing::info_span!("Download loop"));
 
   let progress_clone = progress.clone();
-  let patching_fut = actions_fut.then(|validation_result| async move {
+  let patching_fut = actions_handle.then(|validation_result| async move {
     loop {
       if let Some(patching_entry) = patching_receiver.next().await {
         info!("Patching target file: {}, using the file {}", &patching_entry.target_path, &patching_entry.download_path);
@@ -100,12 +103,12 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
         break;
       }
     }
-    validation_result
-  });
+    validation_result?
+  }.instrument(tracing::info_span!("Patching loop")));
 
   info!("Gonna wait for patching and downloading to be done");
 
-  let (patching_result, downloads_result) = futures::join!(patching_fut, downloads_fut);
+  let (patching_result, downloads_result) = futures::join!(tokio::task::Builder::new().name("Actions/Patching loop").spawn_on(patching_fut, &handle)?.instrument(tracing::info_span!("Patching loop")), tokio::task::Builder::new().name("Download loop").spawn_on(downloads_fut, &handle)?);
   
   info!("Patching and downloading done, telling progress to quit");
 
@@ -113,15 +116,15 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   info!("Told progress to quit");
 
-  downloads_result?;
+  downloads_result??;
 
   info!("No download errors");
 
-  patching_result?;
+  patching_result??;
 
   info!("No patching errors");
   
-  let progress_callback = join_handle.await?;
+  let progress_callback = progress_handle.await?;
 
   info!("Progress join handle was awaited");
 
@@ -140,6 +143,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   Ok(())
 }
 
+#[instrument(skip(sender, actions, progress, delete_file_tasks))]
 async fn verify_files(
   sender: UnboundedSender<Pin<Box<dyn futures::Future<Output = Result<(FilePart, Vec<u8>), Error>> + Send>>>,
   game_location: String,
@@ -177,7 +181,7 @@ async fn verify_files(
                 continue;
               }
 
-              let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size).await?;
+              let (download_location, parts) = determine_parts_to_download(&download_entry.download_path, &download_entry.download_hash, download_entry.download_size)?;
               if parts.len() == 0 {
                 let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entry.download_path)?;
                 f.set_len(download_entry.download_size)?;
@@ -197,7 +201,7 @@ async fn verify_files(
                 // when parts are downloaded, patch file
               }
             },
-            Action::Delete(file) => delete_file_tasks.push(Box::pin(delete_file(file))),
+            Action::Delete(file) => delete_file_tasks.push(Box::pin(async move { delete_file(file) })),
             Action::Nothing => {},
         };
       } else if let Err(e) = action {
@@ -213,36 +217,44 @@ async fn verify_files(
   Ok::<(), Error>(())
 }
 
+#[instrument(skip(receiver, progress_original))]
 async fn download_files(
   receiver: UnboundedReceiver<Pin<Box<dyn futures::Future<Output = Result<(FilePart, Vec<u8>), Error>> + Send>>>,
-  progress: Progress,
+  progress_original: Progress,
   tracker_lock: Arc<Mutex<HashMap<String, (Vec<crate::structures::DownloadEntry>, Vec<u64>)>>>,
-  patching_sender: UnboundedSender<DownloadEntry>,
+  patching_sender_original: UnboundedSender<DownloadEntry>,
 ) -> Result<(), Error> {
   let mut buffered_receiver = receiver.buffer_unordered(10);
   loop {
     if let Some(action) = buffered_receiver.next().await {
+      let tracker_lock_clone = tracker_lock.clone();
+      let progress = progress_original.clone();
+      let patching_sender = patching_sender_original.clone();
+
       if let Ok((part, buffer)) = action {
-        info!("Part downloaded: {:#?}", part);
-        part.write_to_file(buffer).await?;
-        //progress.increment_downloaded_bytes(part.to - part.from);
-
-        let mut tracker = tracker_lock.lock().await;
-        let (download_entries, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;
-        parts.remove(parts.binary_search(&part.part_byte).expect("Could not find the part_byte"));
-        if parts.len() == 0 {
-          let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entries[0].download_path)?;
-          f.set_len(download_entries[0].download_size)?;
-          drop(f);
-          progress.increment_completed_downloads();
-
-          download_entries.iter().for_each(|download_entry| {
-            info!("Ey, can start patchin this file: {:#?}", &download_entry);
-            progress.add_ready_to_patch();
-            patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
-          });
-        }
-        drop(tracker);
+        tokio::task::Builder::new().name(&format!("Handling part {} of {}", part.part_byte, part.file)).spawn(async move {
+            info!("Part downloaded: {:#?}", part);
+            part.write_to_file(buffer).await?;
+            //progress.increment_downloaded_bytes(part.to - part.from);
+    
+            let mut tracker = tracker_lock_clone.lock().await;
+            let (download_entries, parts) = tracker.get_mut(&part.file).ok_or_else(|| Error::None(format!("No tracker entry found for: {}", &part.file)))?;
+            parts.remove(parts.binary_search(&part.part_byte).expect("Could not find the part_byte"));
+            if parts.len() == 0 {
+              let f = std::fs::OpenOptions::new().read(true).write(true).open(&download_entries[0].download_path)?;
+              f.set_len(download_entries[0].download_size)?;
+              drop(f);
+              progress.increment_completed_downloads();
+    
+              download_entries.iter().for_each(|download_entry| {
+                info!("Ey, can start patchin this file: {:#?}", &download_entry);
+                progress.add_ready_to_patch();
+                patching_sender.unbounded_send(download_entry.clone()).expect("Closed or sum shit");
+              });
+            }
+            drop(tracker);
+          Ok::<(), Error>(())
+        })?.await??;
       } else if let Err(e) = action {
         error!("Downloading FilePart failed: {:#?}", e);
       }
@@ -251,6 +263,6 @@ async fn download_files(
       break;
     }
   }
-  drop(patching_sender);
+  drop(patching_sender_original);
   Ok::<(), Error>(())
 }

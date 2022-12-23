@@ -1,6 +1,6 @@
 use crate::structures::{Error, Instruction};
 use crate::traits::AsString;
-use log::error;
+use tracing::error;
 
 
 pub(crate) fn parse_instructions(instructions: Box<String>) -> Result<Vec<Instruction>, Error> {

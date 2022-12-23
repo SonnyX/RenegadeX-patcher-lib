@@ -34,14 +34,18 @@ impl Patcher {
     self.join_handle = Some(tokio::task::spawn(async move {
       let result = flow(mirrors, software_location, &instructions_hash, progress_callback).pausable().await;
       if result.is_ok() {
-        log::info!("Calling success_callback");
+        tracing::info!("Calling success_callback");
         success_callback();
       } else if let Err(e) = result {
-        log::info!("Calling failure_callback");
+        tracing::info!("Calling failure_callback");
         failure_callback(e);
       }
     }));
   }
+
+  pub async fn get_handle(mut self) -> Option<tokio::task::JoinHandle<()>> {
+    self.join_handle.take()
+  } 
 
   pub async fn cancel(mut self) -> Result<(), ()> {
     crate::pausable::FUTURE_CONTEXT.stop()?;

@@ -1,4 +1,4 @@
-use log::error;
+use tracing::error;
 
 /// Convert a raw bytesize into a network speed
 pub fn convert(num: f64) -> String {
