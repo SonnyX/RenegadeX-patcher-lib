@@ -16,14 +16,14 @@ use futures::FutureExt;
 
 use crate::functions::delete_file;
 use crate::functions::determine_parts_to_download;
-use crate::pausable::PausableTrait;
+use crate::pausable::{PausableTrait, FutureContext};
 use crate::structures::DownloadEntry;
 use crate::structures::FilePart;
 use crate::structures::{Mirrors, Progress, Action};
 use crate::functions::{apply_patch, parse_instructions, retrieve_instructions};
 
 
-pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash: &str, progress_callback: Box<dyn Fn(&Progress) + Send>) -> Result<(), Error> {
+pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash: &str, progress_callback: Box<dyn Fn(&Progress) + Send>, context: Arc<FutureContext>) -> Result<(), Error> {
   let progress = Progress::new();
   progress.set_current_action("Testing mirrors!".to_string())?;
   progress_callback(&progress);
@@ -33,7 +33,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   progress_callback(&progress);
   
   // Download Instructions.json
-  let instructions = retrieve_instructions(instructions_hash, &mirrors).pausable().await?;
+  let instructions = retrieve_instructions(instructions_hash, &mirrors).pausable(context).await?;
   
   progress.set_current_action("Parsing instructions file!".to_string())?;
   progress_callback(&progress);

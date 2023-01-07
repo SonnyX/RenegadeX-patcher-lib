@@ -3,7 +3,7 @@ use std::sync::{Arc};
 use std::sync::atomic::AtomicBool;
 
 use crate::functions::flow;
-use crate::pausable::BackgroundService;
+use crate::pausable::{BackgroundService, FutureContext};
 use crate::pausable::PausableTrait;
 use crate::structures::{Error, Mirrors, Progress};
 
@@ -16,6 +16,7 @@ pub struct Patcher {
   pub(crate) success_callback: Option<Box<dyn FnOnce() + Send>>,
   pub(crate) failure_callback: Option<Box<dyn FnOnce(Error) + Send>>,
   pub(crate) progress_callback: Option<Box<dyn Fn(&Progress) + Send>>,
+  pub(crate) context: Arc<FutureContext>
 }
 
 impl Patcher {
@@ -30,9 +31,10 @@ impl Patcher {
     let success_callback = self.success_callback.take().expect("Can only start patching once");
     let failure_callback = self.failure_callback.take().expect("Can only start patching once");
     let progress_callback = self.progress_callback.take().expect("Can only start patching once");
+    let context = self.context.clone();
 
     self.join_handle = Some(tokio::task::spawn(async move {
-      let result = flow(mirrors, software_location, &instructions_hash, progress_callback).pausable().await;
+      let result = flow(mirrors, software_location, &instructions_hash, progress_callback, context.clone()).pausable(context).await;
       if result.is_ok() {
         tracing::info!("Calling success_callback");
         success_callback();
@@ -48,7 +50,7 @@ impl Patcher {
   } 
 
   pub async fn cancel(mut self) -> Result<(), ()> {
-    crate::pausable::FUTURE_CONTEXT.stop()?;
+    self.context.stop()?;
     if let Some(join_handle) = self.join_handle.take() {
       let _ = join_handle.await;
     }
@@ -56,10 +58,10 @@ impl Patcher {
   }
 
   pub fn pause(&self) -> Result<(), ()> {
-    crate::pausable::FUTURE_CONTEXT.pause()
+    self.context.pause()
   }
 
   pub fn resume(&self) -> Result<(), ()> {
-    crate::pausable::FUTURE_CONTEXT.resume()
+    self.context.resume()
   }
 }

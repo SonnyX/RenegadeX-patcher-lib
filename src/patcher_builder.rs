@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use crate::pausable::FutureContext;
 use crate::{NamedUrl, Progress};
 use crate::patcher::Patcher;
 use crate::structures::{Error, Mirrors};
@@ -70,6 +71,7 @@ impl PatcherBuilder {
             success_callback: self.success_callback,
             failure_callback: self.failure_callback,
             progress_callback: self.progress_callback,
+            context: Arc::new(FutureContext::new())
         })
     }
 }

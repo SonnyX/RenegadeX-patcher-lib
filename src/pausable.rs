@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::task::{ Context, Poll };
 use std::future::Future;
 use std::pin::Pin;
@@ -5,18 +6,27 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use futures::task::AtomicWaker;
 
-pub static FUTURE_CONTEXT : FutureContext = FutureContext { paused: AtomicBool::new(false), waker: AtomicWaker::new(), cancelled: AtomicBool::new(false) };
-
 pub trait BackgroundService {
   fn pause(&self) -> Result<(), ()>;
   fn resume(&self) -> Result<(), ()>;
   fn stop(&self) -> Result<(), ()>;
 }
 
+#[derive(Clone, Debug)]
 pub struct FutureContext {
-  pub paused: AtomicBool,
-  pub waker: AtomicWaker,
-  pub cancelled: AtomicBool,
+  pub paused: Arc<AtomicBool>,
+  pub waker: Arc<AtomicWaker>,
+  pub cancelled: Arc<AtomicBool>,
+}
+
+impl FutureContext {
+  pub(crate) fn new() -> Self {
+    FutureContext {
+      paused: Arc::new(AtomicBool::new(false)),
+      waker: Arc::new(AtomicWaker::new()),
+      cancelled: Arc::new(AtomicBool::new(false))
+    }
+  }
 }
 
 impl BackgroundService for FutureContext {
@@ -45,31 +55,33 @@ impl BackgroundService for FutureContext {
 }
 
 pub trait PausableTrait<B, A: Future<Output = B>> {
-  fn pausable(self) -> Pausable<B, A>;
+  fn pausable(self, context: Arc<FutureContext>) -> Pausable<B, A>;
 }
 
 impl<B, A: Future<Output = B>> PausableTrait<B, A> for A {
-  fn pausable(self) -> Pausable<B, A> {
+  fn pausable(self, context: Arc<FutureContext>) -> Pausable<B, A> {
     Pausable {
       future: self,
+      context
     }
   }
 }
 
 pub struct Pausable<B, A: Future<Output = B>> {
   future: A,
+  context: Arc<FutureContext>
 }
 
 impl<B, A: Future<Output = B>> Future for Pausable<B, A> {
   type Output = B;
 
   fn poll(mut self: Pin<&mut Self>, wake: &mut Context<'_>) -> Poll<Self::Output> {
-    if FUTURE_CONTEXT.cancelled.load(Ordering::Relaxed) {
+    if self.context.cancelled.load(Ordering::Relaxed) {
       drop(wake);
       panic!("Cancelled futures!");
     }
-    if FUTURE_CONTEXT.paused.load(Ordering::Relaxed) {
-      FUTURE_CONTEXT.waker.register(wake.waker());
+    if self.context.paused.load(Ordering::Relaxed) {
+      self.context.waker.register(wake.waker());
       return Poll::Pending;
     }
 
