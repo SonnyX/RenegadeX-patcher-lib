@@ -33,7 +33,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   progress_callback(&progress);
   
   // Download Instructions.json
-  let instructions = retrieve_instructions(instructions_hash, &mirrors).pausable(context).await?;
+  let instructions = retrieve_instructions(instructions_hash, &mirrors).pausable(context.clone()).await?;
   
   progress.set_current_action("Parsing instructions file!".to_string())?;
   progress_callback(&progress);
@@ -87,7 +87,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   let (patching_sender, mut patching_receiver) = futures::channel::mpsc::unbounded();
 
   let actions_fut = verify_files(sender, game_location.clone(), actions, progress.clone(), patching_sender.clone(), tracker_lock.clone(), delete_file_tasks, mirrors);
-  let actions_handle = tokio::task::Builder::new().name("Verification loop").spawn_on(actions_fut, &handle)?;
+  let actions_handle = tokio::task::Builder::new().name("Verification loop").spawn_on(actions_fut.pausable(context.clone()), &handle)?;
 
   let downloads_fut = download_files(receiver, progress.clone(), tracker_lock.clone(), patching_sender).instrument(tracing::info_span!("Download loop"));
 
@@ -108,7 +108,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   info!("Gonna wait for patching and downloading to be done");
 
-  let (patching_result, downloads_result) = futures::join!(tokio::task::Builder::new().name("Actions/Patching loop").spawn_on(patching_fut, &handle)?.instrument(tracing::info_span!("Patching loop")), tokio::task::Builder::new().name("Download loop").spawn_on(downloads_fut, &handle)?);
+  let (patching_result, downloads_result) = futures::join!(tokio::task::Builder::new().name("Actions/Patching loop").spawn_on(patching_fut.pausable(context.clone()), &handle)?.instrument(tracing::info_span!("Patching loop")), tokio::task::Builder::new().name("Download loop").spawn_on(downloads_fut.pausable(context.clone()), &handle)?);
   
   info!("Patching and downloading done, telling progress to quit");
 
