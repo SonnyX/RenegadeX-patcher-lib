@@ -13,3 +13,4 @@ pub use patcher_builder::PatcherBuilder as PatcherBuilder;
 pub use structures::Error as Error;
 pub use structures::NamedUrl as NamedUrl;
 pub use structures::Progress as Progress;
+pub use functions::human_readable_bytesize as human_readable_bytesize;

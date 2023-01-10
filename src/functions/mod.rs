@@ -10,8 +10,8 @@ pub(crate) use retrieve_instructions::retrieve_instructions as retrieve_instruct
 mod parse_instructions;
 pub(crate) use parse_instructions::parse_instructions as parse_instructions;
 
-mod convert_bytes;
-pub(crate) use convert_bytes::convert as convert;
+mod human_readable_bytesize;
+pub use human_readable_bytesize::human_readable_bytesize as human_readable_bytesize;
 
 mod get_hash;
 pub(crate) use get_hash::get_hash as get_hash;
