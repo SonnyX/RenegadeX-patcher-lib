@@ -2,7 +2,7 @@
 use std::sync::{Arc};
 use std::sync::atomic::AtomicBool;
 
-use crate::functions::flow;
+use crate::functions::{flow, remove_unversioned};
 use crate::pausable::{BackgroundService, FutureContext};
 use crate::pausable::PausableTrait;
 use crate::structures::{Error, Mirrors, Progress};
@@ -20,8 +20,25 @@ pub struct Patcher {
 }
 
 impl Patcher {
-  pub async fn start_validation() {
+  pub async fn remove_unversioned(&mut self) {
+    let mirrors = self.mirrors.clone();
+    let software_location = self.software_location.clone();
+    let instructions_hash = self.instructions_hash.clone();
+    let success_callback = self.success_callback.take().expect("Can only start patching once");
+    let failure_callback = self.failure_callback.take().expect("Can only start patching once");
+    let progress_callback = self.progress_callback.take().expect("Can only start patching once");
+    let context = self.context.clone();
 
+    self.join_handle = Some(tokio::task::spawn(async move {
+      let result = remove_unversioned(mirrors, software_location, &instructions_hash, progress_callback, context.clone()).pausable(context).await;
+      if result.is_ok() {
+        tracing::info!("Calling success_callback");
+        success_callback();
+      } else if let Err(e) = result {
+        tracing::info!("Calling failure_callback");
+        failure_callback(e);
+      }
+    }));
   }
 
   pub async fn start_patching(&mut self) {

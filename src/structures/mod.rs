@@ -1,9 +1,6 @@
 mod download_entry;
 pub(crate) use download_entry::DownloadEntry as DownloadEntry;
 
-mod patch_entry;
-pub(crate) use patch_entry::PatchEntry as PatchEntry;
-
 mod mirror;
 pub(crate) use mirror::Mirror as Mirror;
 
@@ -23,9 +20,6 @@ pub use error::Error as Error;
 
 mod directory;
 pub(crate) use directory::Directory as Directory;
-
-mod file;
-pub(crate) use file::File as File;
 
 mod buffered_writer;
 pub(crate) use buffered_writer::BufWriter as BufWriter;
