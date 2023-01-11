@@ -32,7 +32,7 @@ impl Instruction {
           backup_hash = Some(get_hash(&backup_path)?);
           if backup_hash.clone().map(|backup_hash| newest_hash.eq(&backup_hash)).unwrap() {
             // Restore backup file
-            restore_backup(&path);
+            restore_backup(&path)?;
             return Ok(Action::Nothing);
           }
         }
@@ -56,7 +56,7 @@ impl Instruction {
             // Check if there's a backup file, and restore it if it matches previous_hash
             } else if backup_exists && previous_hash.eq(&backup_hash.clone().unwrap()) {
               // Restore backup file
-              restore_backup(&path);
+              restore_backup(&path)?;
               return Ok(Action::Download(DownloadEntry {
                 mirror_path: format!("delta/{}_from_{}", &newest_hash, &previous_hash),
                 download_path: download_path,

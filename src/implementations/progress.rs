@@ -7,15 +7,16 @@ use std::sync::{Arc, Mutex};
 
 #[async_trait]
 impl download_async::Progress for Progress {
-    async fn set_file_size(&mut self, size:usize) -> () {
+    async fn set_file_size(&mut self, _size: usize) -> () {
+        // We already know the file-size beforehand
     }
 
-    async fn add_to_progress(&mut self, amount:usize) -> () {
+    async fn add_to_progress(&mut self, amount: usize) -> () {
       self.downloaded_bytes.0.fetch_add(amount as u64, Ordering::Relaxed);
 
     }
 
-    async fn remove_from_progress(&mut self, bytes:usize) -> () {
+    async fn remove_from_progress(&mut self, bytes: usize) -> () {
       self.downloaded_bytes.0.fetch_sub(bytes as u64, Ordering::Relaxed);
     }
 }
@@ -54,10 +55,6 @@ impl Progress {
     pub(crate) fn add_download(&self, value: u64) {
         self.downloaded_files.1.fetch_add(1, Ordering::Relaxed);
         self.downloaded_bytes.1.fetch_add(value, Ordering::Relaxed);
-    }
-
-    pub(crate) fn increment_downloaded_bytes(&self, value: u64) {
-        self.downloaded_bytes.0.fetch_add(value, Ordering::Relaxed);
     }
 
     pub(crate) fn increment_completed_downloads(&self) {

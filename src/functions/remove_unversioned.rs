@@ -1,8 +1,6 @@
-use crate::{structures::{Directory, Error, Instruction, Mirrors}, functions::read_dir, Progress, pausable::{FutureContext, PausableTrait}};
+use crate::{structures::{Directory, Error, Instruction}, functions::read_dir, Progress};
 use tracing::info;
-use std::{path::PathBuf, sync::Arc};
-
-use super::{retrieve_instructions, parse_instructions};
+use std::path::PathBuf;
 
 /// This function converts the instructions array to a Directory structure
 fn instructions_to_directory_info(instructions: &Vec<Instruction>, renegadex_path: &PathBuf) -> Result<Directory, Error> {
@@ -29,27 +27,10 @@ fn instructions_to_directory_info(instructions: &Vec<Instruction>, renegadex_pat
 }
 
 
-pub(crate) async fn remove_unversioned(mut mirrors: Mirrors, game_location: String, instructions_hash: &str, progress_callback: Box<dyn Fn(&Progress) + Send>, context: Arc<FutureContext>) -> Result<(), Error> {
+pub(crate) async fn remove_unversioned(game_location: String, instructions: Vec<Instruction>, progress: Progress, progress_callback: Box<dyn Fn(&Progress) + Send>) -> Result<(), Error> {
     let game_path = std::path::PathBuf::from(game_location.clone());
-
-    let progress = Progress::new();
-    progress.set_current_action("Testing mirrors!".to_string())?;
+    progress.set_current_action("Removing unknown files!".to_string())?;
     progress_callback(&progress);
-    mirrors.test_mirrors().await?;
-    
-    progress.set_current_action("Downloading instructions file!".to_string())?;
-    progress_callback(&progress);
-    
-    // Download Instructions.json
-    let instructions = retrieve_instructions(instructions_hash, &mirrors).pausable(context.clone()).await?;
-    
-    progress.set_current_action("Parsing instructions file!".to_string())?;
-    progress_callback(&progress);
-    
-    // Parse Instructions.json
-    let instructions = parse_instructions(instructions)?;
-    
-    progress.set_current_action("Processing instructions!".to_string())?;
 
     let versioned_files = instructions_to_directory_info(&instructions, &game_path)?;
 

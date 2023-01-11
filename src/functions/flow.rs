@@ -17,34 +17,13 @@ use futures::FutureExt;
 use crate::functions::delete_file;
 use crate::functions::determine_parts_to_download;
 use crate::pausable::{PausableTrait, FutureContext};
-use crate::structures::DownloadEntry;
+use crate::structures::{DownloadEntry, Instruction};
 use crate::structures::FilePart;
 use crate::structures::{Mirrors, Progress, Action};
-use crate::functions::{apply_patch, parse_instructions, retrieve_instructions};
+use crate::functions::apply_patch;
 
 
-pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash: &str, progress_callback: Box<dyn Fn(&Progress) + Send>, context: Arc<FutureContext>) -> Result<(), Error> {
-  let progress = Progress::new();
-  progress.set_current_action("Testing mirrors!".to_string())?;
-  progress_callback(&progress);
-  mirrors.test_mirrors().await?;
-  
-  progress.set_current_action("Downloading instructions file!".to_string())?;
-  progress_callback(&progress);
-  
-  // Download Instructions.json
-  let instructions = retrieve_instructions(instructions_hash, &mirrors).pausable(context.clone()).await?;
-  
-  progress.set_current_action("Parsing instructions file!".to_string())?;
-  progress_callback(&progress);
-  
-  // Parse Instructions.json
-  let instructions = parse_instructions(instructions)?;
-  
-  progress.set_current_action("Processing instructions!".to_string())?;
-  progress_callback(&progress);
-  
-  //let mut futures : Box<FuturesUnordered<_>> = Box::new(FuturesUnordered::new());
+pub(crate) async fn flow(mirrors: Mirrors, game_location: &String, instructions: Vec<Instruction>, progress: Progress, progress_callback: Box<dyn Fn(&Progress) + Send>, context: Arc<FutureContext>) -> Result<Box<dyn Fn(&Progress) + Send>, Error> {
   progress.set_instructions_amount(instructions.len().try_into().expect("Somehow we have more than 2^64 instructions, colour me impressed"));
   progress.set_current_action("Validating, Downloading, Patching!".to_string())?;
   progress_callback(&progress);
@@ -52,6 +31,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   let repeated_progress = progress.clone();
   let report_progress = Arc::new(std::sync::atomic::AtomicBool::new(true));
   let report_progress_clone = report_progress.clone();
+
   let future = async move {
     loop {
       if report_progress_clone.load(Ordering::Relaxed) == false {
@@ -86,7 +66,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
   
   let (patching_sender, mut patching_receiver) = futures::channel::mpsc::unbounded();
 
-  let actions_fut = verify_files(sender, game_location.clone(), actions, progress.clone(), patching_sender.clone(), tracker_lock.clone(), delete_file_tasks, mirrors);
+  let actions_fut = verify_files(sender, game_location.clone(), actions, progress.clone(), patching_sender.clone(), tracker_lock.clone(), delete_file_tasks, mirrors.clone());
   let actions_handle = tokio::task::Builder::new().name("Verification loop").spawn_on(actions_fut.pausable(context.clone()), &handle)?;
 
   let downloads_fut = download_files(receiver, progress.clone(), tracker_lock.clone(), patching_sender).instrument(tracing::info_span!("Download loop"));
@@ -140,7 +120,7 @@ pub async fn flow(mut mirrors: Mirrors, game_location: String, instructions_hash
 
   std::fs::remove_dir_all(format!("{}patcher", &game_location))?;
 
-  Ok(())
+  Ok(progress_callback)
 }
 
 #[instrument(skip(sender, actions, progress, delete_file_tasks))]

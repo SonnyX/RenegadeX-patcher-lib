@@ -2,7 +2,7 @@
 use std::sync::{Arc};
 use std::sync::atomic::AtomicBool;
 
-use crate::functions::{flow, remove_unversioned};
+use crate::functions::{flow, remove_unversioned, download_instructions};
 use crate::pausable::{BackgroundService, FutureContext};
 use crate::pausable::PausableTrait;
 use crate::structures::{Error, Mirrors, Progress};
@@ -20,7 +20,7 @@ pub struct Patcher {
 }
 
 impl Patcher {
-  pub async fn remove_unversioned(&mut self) {
+  pub async fn factory_reset(&mut self) {
     let mirrors = self.mirrors.clone();
     let software_location = self.software_location.clone();
     let instructions_hash = self.instructions_hash.clone();
@@ -30,7 +30,14 @@ impl Patcher {
     let context = self.context.clone();
 
     self.join_handle = Some(tokio::task::spawn(async move {
-      let result = remove_unversioned(mirrors, software_location, &instructions_hash, progress_callback, context.clone()).pausable(context).await;
+
+      let result = async {
+        let progress = Progress::new();
+
+        let (instructions, progress_callback) = download_instructions(mirrors.clone(), &instructions_hash, progress.clone(), progress_callback, context.clone()).pausable(context.clone()).await?;
+        let progress_callback = flow(mirrors.clone(), &software_location, instructions.clone(), progress.clone(), progress_callback, context.clone()).pausable(context.clone()).await?;
+        remove_unversioned(software_location, instructions, progress.clone(), progress_callback).pausable(context).await
+      }.await;
       if result.is_ok() {
         tracing::info!("Calling success_callback");
         success_callback();
@@ -51,7 +58,12 @@ impl Patcher {
     let context = self.context.clone();
 
     self.join_handle = Some(tokio::task::spawn(async move {
-      let result = flow(mirrors, software_location, &instructions_hash, progress_callback, context.clone()).pausable(context).await;
+      let result = async {
+        let progress = Progress::new();
+
+        let (instructions, progress_callback) = download_instructions(mirrors.clone(), &instructions_hash, progress.clone(), progress_callback, context.clone()).pausable(context.clone()).await?;
+        flow(mirrors.clone(), &software_location, instructions.clone(), progress.clone(), progress_callback, context.clone()).pausable(context.clone()).await
+      }.await;
       if result.is_ok() {
         tracing::info!("Calling success_callback");
         success_callback();

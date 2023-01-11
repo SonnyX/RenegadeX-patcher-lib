@@ -36,9 +36,9 @@ pub(crate) async fn retrieve_instructions(instructions_hash: &str, mirrors: &Mir
       return Err(Error::OutOfRetries("Couldn't fetch instructions.json"));
     } else {
       match result.unwrap_err() { // todo: Decide when to remove mirror, and when not to remove it
-        Error::DownloadTimeout(e) => {},
-        Error::DownloadError(e) => {},
-        Error::HttpError(e) => {},
+        Error::DownloadTimeout(_e) => {},
+        Error::DownloadError(_e) => {},
+        Error::HttpError(_e) => {},
         _ => {}
       };
       warn!("Removing mirror: {:#?}", &mirror);

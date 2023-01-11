@@ -1,7 +1,7 @@
 use std::{io::{SeekFrom, Write, Seek, Read}, fs::OpenOptions};
 
-use crate::structures::{FilePart};
-use crate::{structures::{Error}, functions::get_hash};
+use crate::structures::FilePart;
+use crate::{structures::Error, functions::get_hash};
 
 pub fn determine_parts_to_download(file_location: &str, file_hash: &str, size: u64) -> Result<(String, Vec<FilePart>), Error> {
   const PART_SIZE : u64 = 2u64.pow(20); //1.048.576 == 1 MB aprox
@@ -32,6 +32,6 @@ pub fn determine_parts_to_download(file_location: &str, file_hash: &str, size: u
   f.read_exact(&mut completed_parts)?;
   f.flush()?;
   
-  let download_parts : Vec<FilePart> = completed_parts.iter().enumerate().filter(|(i, part)| part == &&0_u8).map(|(i,_)| FilePart::new(file_location.to_owned(), size + (i as u64), ( i as u64 ) * PART_SIZE, ( ( (i + 1) as u64) * PART_SIZE).min(size))).collect();
+  let download_parts : Vec<FilePart> = completed_parts.iter().enumerate().filter(|(_i, part)| part == &&0_u8).map(|(i,_)| FilePart::new(file_location.to_owned(), size + (i as u64), ( i as u64 ) * PART_SIZE, ( ( (i + 1) as u64) * PART_SIZE).min(size))).collect();
   return Ok((file_location.to_owned(), download_parts));
 }

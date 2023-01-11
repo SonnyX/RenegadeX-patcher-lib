@@ -30,3 +30,6 @@ pub(crate) use flow::flow as flow;
 
 mod determine_parts_to_download;
 pub(crate) use determine_parts_to_download::determine_parts_to_download as determine_parts_to_download;
+
+mod download_instructions;
+pub(crate) use download_instructions::download_instructions as download_instructions;
