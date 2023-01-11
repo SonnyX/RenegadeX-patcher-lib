@@ -3,13 +3,7 @@ use std::fs::DirBuilder;
 use crate::functions::get_hash;
 use tracing::{info, instrument};
 
-///
-/// Applies the vcdiff patch file to the target file.
-/// ```
-/// -------------- par --------------------------------------------------
-/// | DeltaQueue | --> | apply patch to all files that match this Delta |
-/// --------------     --------------------------------------------------
-///```
+/// Applies the vcdiff patch file to the target file
 #[instrument]
 pub(crate) async fn apply_patch(target_path: String, target_hash: String, delta_path: String) -> Result<(), Error> {
   let mut dir_path = target_path.clone();
