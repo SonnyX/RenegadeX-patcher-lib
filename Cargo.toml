@@ -10,7 +10,7 @@ sha2 = "0.10"
 hex = "0.4"
 xdelta = { git = "https://github.com/SonnyX/xdelta-decoder-rust.git" }
 tokio = { version = "1.34.0", features = ["full", "tracing"] }
-url = "2.4"
+url = "2.5"
 futures = "0.3"
 runas = { git = "https://github.com/SonnyX/rust-runas.git" }
 tracing = "0.1"
